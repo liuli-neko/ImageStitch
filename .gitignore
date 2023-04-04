@@ -72,3 +72,12 @@ CMakeLists.txt.user*
 *.dll
 *.exe
 
+# config
+/.vs
+/.vscode
+/build
+/out
+/.xmake
+*/.vs
+*/build
+*/out

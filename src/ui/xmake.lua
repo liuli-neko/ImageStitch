@@ -1,0 +1,26 @@
+add_rules("mode.debug", "mode.release")
+
+add_requires("glog", "gtest", "qt5widgets")
+add_cxxflags("cl::/utf-8")
+set_languages("c++17")
+
+target("MUI")
+  add_rules("qt.static")
+  add_packages("glog", "qt5widgets")
+  add_files("*.cpp")
+  add_files("*.hpp")
+  add_frameworks("QtGui")
+
+target("imageViewTest")
+  add_rules("qt.widgetapp")
+  add_packages("glog", "gtest", "qt5widgets")
+  add_deps("MUI")
+  add_files("test/imageViewTest.cpp")
+  add_files("../gtest/uiTestMain.cpp")
+
+target("imageBoxTest")
+  add_rules("qt.widgetapp")
+  add_packages("glog", "gtest", "qt5widgets")
+  add_deps("MUI")
+  add_files("test/imageBoxTest.cpp")
+  add_files("../gtest/uiTestMain.cpp")
