@@ -32,10 +32,7 @@ class MainWindow {
     if (main_window->objectName().isEmpty())
       main_window->setObjectName("Image Stitch(NekoIS)");
     main_window->setWindowTitle("Image Stitch(NekoIS)");
-    main_window->setWindowIcon(
-        QPixmap(
-            "E:/workplace/qt_project/ImageStitch/src/imageStitcher-icon.png")
-            .scaled(30, 30));
+    main_window->setWindowIcon(QPixmap("./imageStitch.png").scaled(30, 30));
     main_window->resize(800, 600);
 
     tab_widget = new QTabWidget();
@@ -67,10 +64,11 @@ class MainWindow {
     action_add_tab_from_files->setObjectName("action_add_tab_from_files");
     QWidget::connect(action_add_tab_from_files, &QAction::triggered,
                      main_window, [main_window, this](bool checked) -> void {
-                       auto tab = main_window->addTab();
-                       tab_widget->setCurrentWidget(tab);
                        QString dir_name = QFileDialog::getExistingDirectory(
                            main_window, main_window->tr("添加图像"), "./");
+                       auto tab =
+                           main_window->addTab(QFileInfo(dir_name).baseName());
+                       tab_widget->setCurrentWidget(tab);
                        tab->CreateFromDirectory(dir_name);
                      });
     action_export_current_tab = new QAction();
@@ -192,7 +190,7 @@ void MainWindow::TabMenu(const QPoint &pos) {
 ImageStitch::ImageStitcherView *MainWindow::addTab(QString tabName) {
   ImageStitch::ImageStitcherView *imageStitchView =
       new ImageStitch::ImageStitcherView();
-  ui->tab_widget->addTab(imageStitchView, "未命名");
+  ui->tab_widget->addTab(imageStitchView, tabName);
   connect(imageStitchView, &ImageStitch::ImageStitcherView::Message,
           ui->statusbar, &QStatusBar::showMessage);
   imageStitchView->ShowMessage(

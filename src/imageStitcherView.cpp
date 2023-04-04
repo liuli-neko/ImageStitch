@@ -53,6 +53,7 @@ void ImageStitcherView::SetupUi(const int width, const int height) {
     CustomizeTitleWidget *config_window = new CustomizeTitleWidget();
     config_window->setWindowTitle("Stitcher Configuration");
     config_window->setCentralWidget(config_dialog);
+    config_window->setWindowResizable(false);
     auto configs = image_stitcher.ParamTable();
     const auto &params = image_stitcher.GetParams();
     int i = 0;

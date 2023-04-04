@@ -79,16 +79,17 @@ class TitleBar final : public QToolBar {
    *使窗口占满左半边屏幕
    */
   void showFullLeftScreen();
-	/**
-	 * @brief show full right screen
-	 * 使窗口占满右半边屏幕
-	 */
+  /**
+   * @brief show full right screen
+   * 使窗口占满右半边屏幕
+   */
   void showFullRightScreen();
-	/**
-	 * @brief show normal
-	 * 恢复窗口状态（主要恢复左半边和右半边满屏状态，Qt好像没有提供这两个）
-	 */
+  /**
+   * @brief show normal
+   * 恢复窗口状态（主要恢复左半边和右半边满屏状态，Qt好像没有提供这两个）
+   */
   void showNormal();
+	void showMaximized();
 
  public slots:
   void MinimizedEvent(bool checked);
@@ -141,6 +142,7 @@ class CustomizeTitleWidget : public QWidget {
   void showMaximized();
   void showFullScreen();
   void showNormal();
+  void setWindowResizable(bool resizable);
 
  protected:
   TitleBar *title_bar = nullptr;
@@ -173,5 +175,6 @@ class CustomizeTitleWidget : public QWidget {
   QPoint move_pos;
   bool flag_resizing = false;
   bool flag_pressed = false;
+  bool flag_resizable = true;
 };
 }  // namespace ImageStitch

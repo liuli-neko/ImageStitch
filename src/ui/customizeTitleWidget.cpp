@@ -8,7 +8,6 @@
 #include <QShowEvent>
 #include <QStatusBar>
 #include <QStyle>
-#include <iostream>
 
 namespace ImageStitch {
 TitleBar::TitleBar(QWidget *parent) : QToolBar(parent) {
@@ -70,26 +69,21 @@ void TitleBar::MaximizedEvent(bool checked) {
     return;
   }
   if (!window()->isMaximized()) {
-    CustomizeTitleWidget *main_window =
-        dynamic_cast<CustomizeTitleWidget *>(window());
-    if (main_window != nullptr) {
-      main_window->showMaximized();
-    } else {
-      window()->showMaximized();
-    }
-    toolButton_max->setIcon(
-        style()->standardPixmap(QStyle::SP_TitleBarNormalButton));
+    showMaximized();
   } else {
-    CustomizeTitleWidget *main_window =
-        dynamic_cast<CustomizeTitleWidget *>(window());
-    if (main_window != nullptr) {
-      main_window->showNormal();
-    } else {
-      window()->showNormal();
-    }
-    toolButton_max->setIcon(
-        style()->standardPixmap(QStyle::SP_TitleBarMaxButton));
+    showNormal();
   }
+}
+void TitleBar::showMaximized() {
+  CustomizeTitleWidget *main_window =
+      dynamic_cast<CustomizeTitleWidget *>(window());
+  if (main_window != nullptr) {
+    main_window->showMaximized();
+  } else {
+    window()->showMaximized();
+  }
+  toolButton_max->setIcon(
+      style()->standardPixmap(QStyle::SP_TitleBarNormalButton));
 }
 
 void TitleBar::showFullLeftScreen() {
@@ -122,6 +116,8 @@ void TitleBar::showNormal() {
     } else {
       window()->showNormal();
     }
+    toolButton_max->setIcon(
+        style()->standardPixmap(QStyle::SP_TitleBarMaxButton));
   }
 }
 
@@ -208,8 +204,9 @@ void TitleBar::setTitle(const QString &title) {
 
 CustomizeTitleWidget::CustomizeTitleWidget(QWidget *parent) : QWidget(parent) {
   setWindowFlags(Qt::FramelessWindowHint);  // 隐藏窗体原始边框
-  setContextMenuPolicy(
-      Qt::NoContextMenu);  // 禁用右键菜单（未知问题，右键会弹出一个选项框，选中会隐藏toolbar）
+  // setContextMenuPolicy(
+  //     Qt::NoContextMenu);  //
+  //     禁用右键菜单（未知问题，右键会弹出一个选项框，选中会隐藏toolbar）
   setAttribute(Qt::WA_StyledBackground);       // 启用样式背景绘制
   setAttribute(Qt::WA_TranslucentBackground);  // 设置背景透明
   setAttribute(Qt::WA_Hover);                  // 启动鼠标悬浮追踪
@@ -350,7 +347,7 @@ void CustomizeTitleWidget::updateRegion(QMouseEvent *event) {
   int marginLeft = event->globalX() - mainRect.x();
   int marginRight = mainRect.x() + mainRect.width() - event->globalX();
 
-  if (!flag_resizing) {
+  if (!flag_resizing && flag_resizable) {
     if ((marginRight >= MARGIN_MIN_SIZE && marginRight <= MARGIN_MAX_SIZE) &&
         ((marginBottom <= MARGIN_MAX_SIZE) &&
          marginBottom >= MARGIN_MIN_SIZE)) {
@@ -480,6 +477,11 @@ void CustomizeTitleWidget::createShadow() {
   shadowEffect->setOffset(0, 0);
   shadowEffect->setBlurRadius(13);
   container_widget->setGraphicsEffect(shadowEffect);
+}
+
+void CustomizeTitleWidget::setWindowResizable(bool resizable) {
+  flag_resizable = resizable;
+  title_bar->setResizable(resizable);
 }
 
 }  // namespace ImageStitch
