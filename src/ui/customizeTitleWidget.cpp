@@ -186,7 +186,7 @@ void TitleBar::mouseDoubleClickEvent(QMouseEvent *event) {
 void TitleBar::paintEvent(QPaintEvent *event) {
   QPainter painter(this);
   auto self_rect = rect();
-  painter.setPen(QColor(200, 200, 200));
+  painter.setPen(QColor(250, 250, 250));
   painter.drawLine(0, self_rect.height() - 1, self_rect.width(),
                    self_rect.height() - 1);
   QWidget::paintEvent(event);
@@ -242,11 +242,10 @@ CustomizeTitleWidget::CustomizeTitleWidget(QWidget *parent) : QWidget(parent) {
   main_layout->addLayout(center_layout, 1);
   main_layout->addLayout(bottom_layout);
 
-  container_widget->setObjectName("container_widget");
-  container_widget->setStyleSheet(
-      "QGroupBox{background-color: rgb(250,250,250)}"
-      "QGroupBox{border-radius: 5px}"
-      "QGroupBox{border: 1px solid rgb(200,200,200)}");
+  setStyleSheet(
+      "QGroupBox{background-color: lightblue}"
+      "QGroupBox{border: 1px solid rgb(200,200,200)}"
+      "QGroupBox{border-radius: 5px}");
 
   createShadow();
 }

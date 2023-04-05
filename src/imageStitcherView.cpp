@@ -53,7 +53,7 @@ void ImageStitcherView::SetupUi(const int width, const int height) {
     CustomizeTitleWidget *config_window = new CustomizeTitleWidget();
     config_window->setWindowTitle(tr("配置"));
     config_window->setCentralWidget(config_dialog);
-    config_window->setWindowResizable(false);
+    // config_window->setWindowResizable(false);
     auto configs = image_stitcher.ParamTable();
     const auto &params = image_stitcher.GetParams();
     int i = 0;
@@ -154,7 +154,7 @@ void ImageStitcherView::paintEvent(QPaintEvent *event) {
 }
 
 ConfigDialog::ConfigDialog(QWidget *parent) : QDialog(parent) {
-  setFixedSize(600, 800);
+  // setFixedSize(600, 800);
   setWindowModality(Qt::ApplicationModal);
   // setWindowFlags(Qt::WindowMinMaxButtonsHint | Qt::FramelessWindowHint);
 
@@ -167,7 +167,7 @@ ConfigDialog::ConfigDialog(QWidget *parent) : QDialog(parent) {
   scroll_area->setWidget(view);
   form_layout = new QFormLayout();
   view->setLayout(form_layout);
-  view->setFixedWidth(570);
+  // view->setFixedWidth(570);
 
   // Create confirm and cancel buttons
   confirm_button = new QPushButton(tr("确认"));
