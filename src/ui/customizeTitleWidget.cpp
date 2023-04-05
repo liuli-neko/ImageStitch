@@ -10,9 +10,9 @@
 #include <QStyle>
 
 namespace ImageStitch {
-TitleBar::TitleBar(QWidget *parent) : QToolBar(parent) {
+TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
   setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  QToolBar::setMovable(false);
+  // QWidget::setMovable(false);
 
   hBoxLayout = new QHBoxLayout();
   hBoxLayout->setDirection(QBoxLayout::LeftToRight);
@@ -38,9 +38,8 @@ TitleBar::TitleBar(QWidget *parent) : QToolBar(parent) {
   hBoxLayout->addWidget(toolButton_max);
   hBoxLayout->addWidget(toolButton_close);
 
-  auto widget = new QWidget();
-  QToolBar::addWidget(widget);
-  widget->setLayout(hBoxLayout);
+  setLayout(hBoxLayout);
+  hBoxLayout->setContentsMargins(2, 4, 2, 5);
 
   toolButton_mini->setIcon(
       style()->standardPixmap(QStyle::SP_TitleBarMinButton));
@@ -135,7 +134,7 @@ void TitleBar::mousePressEvent(QMouseEvent *event) {
     flag_moving = true;
     diff_position = window()->pos() - event->globalPos();
   }
-  QToolBar::mousePressEvent(event);
+  QWidget::mousePressEvent(event);
 }
 
 void TitleBar::mouseReleaseEvent(QMouseEvent *event) {
@@ -143,12 +142,12 @@ void TitleBar::mouseReleaseEvent(QMouseEvent *event) {
     flag_moving = false;
   }
   flag_doubleClick = false;
-  QToolBar::mouseReleaseEvent(event);
+  QWidget::mouseReleaseEvent(event);
 }
 
 void TitleBar::leaveEvent(QEvent *event) {
   flag_moving = false;
-  QToolBar::leaveEvent(event);
+  QWidget::leaveEvent(event);
 }
 
 void TitleBar::mouseMoveEvent(QMouseEvent *event) {
@@ -176,14 +175,23 @@ void TitleBar::mouseMoveEvent(QMouseEvent *event) {
       }
     }
   }
-  QToolBar::mouseMoveEvent(event);
+  QWidget::mouseMoveEvent(event);
 }
 void TitleBar::mouseDoubleClickEvent(QMouseEvent *event) {
   if (event->button() == Qt::LeftButton) {
     flag_doubleClick = true;
     MaximizedEvent(true);
   }
-  QToolBar::mouseDoubleClickEvent(event);
+  QWidget::mouseDoubleClickEvent(event);
+}
+
+void TitleBar::paintEvent(QPaintEvent *event) {
+  QPainter painter(this);
+  auto self_rect = rect();
+  painter.setPen(QColor(200, 200, 200));
+  painter.drawLine(0, self_rect.height() - 1, self_rect.width(),
+                   self_rect.height() - 1);
+  QWidget::paintEvent(event);
 }
 
 void TitleBar::setIcon(const QPixmap &icon) { titleIcon->setPixmap(icon); }
@@ -239,8 +247,8 @@ CustomizeTitleWidget::CustomizeTitleWidget(QWidget *parent) : QWidget(parent) {
   container_widget->setObjectName("container_widget");
   container_widget->setStyleSheet(
       "QGroupBox{background-color: rgb(250,250,250)}"
-      "QGroupBox,QToolBar{border-radius: 5px}"
-      "QGroupBox,QToolBar{border: 1px solid rgb(200,200,200)}");
+      "QGroupBox{border-radius: 5px}"
+      "QGroupBox{border: 1px solid rgb(200,200,200)}");
 
   createShadow();
 }

@@ -17,7 +17,7 @@ namespace ImageStitch {
  * 图标(Label) | 菜单(Menubar) | 空白 | 标题(Label) | 空白 |
  * 功能按钮(QToolButton)
  */
-class TitleBar final : public QToolBar {
+class TitleBar final : public QWidget {
   Q_OBJECT
  public:
   /**
@@ -70,6 +70,7 @@ class TitleBar final : public QToolBar {
   void mouseMoveEvent(QMouseEvent *event) override;
   void mouseDoubleClickEvent(QMouseEvent *event) override;
   void leaveEvent(QEvent *event) override;
+	void paintEvent(QPaintEvent *event) override;
 
   // void showEvent(QShowEvent *event) override;
 
