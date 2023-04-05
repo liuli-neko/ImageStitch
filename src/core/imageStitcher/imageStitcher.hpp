@@ -21,6 +21,7 @@ class ImageStitcher {
   Parameters params;
   cv::Ptr<cv::Stitcher> cv_stitcher;
   std::vector<ImagePtr> images;
+  std::string current_stitcher_mode;
 
  public:
   ImageStitcher();
@@ -32,7 +33,7 @@ class ImageStitcher {
   auto GetImages() -> std::vector<ImagePtr>;
   auto Stitch() -> ImagePtr;
   inline const Parameters& GetParams() const { return params; }
-  inline Parameters GetParams() { return params; }
+  inline Parameters& GetParams() { return params; }
 
   static auto ParamTable() -> std::vector<ConfigItem>;
 

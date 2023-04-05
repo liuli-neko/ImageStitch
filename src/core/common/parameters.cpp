@@ -25,6 +25,10 @@ auto Parameters::FromString(const char *str) -> void {
   params = nlohmann::json::parse(str);
 }
 
+auto Parameters::Empty() const -> bool {
+  return params.empty();
+}
+
 void to_json(nlohmann::json &j, const Parameters &params) { j = params.params; }
 
 void from_json(const nlohmann::json &j, Parameters &params) {

@@ -238,7 +238,7 @@ void ImageBox::setupUi(const int width, const int height) {
   setAcceptDrops(true);
   setDragDropOverwriteMode(true);
   _menu = new QMenu(this);
-  _menu_add = _menu->addAction("添加");
+  _menu_add = _menu->addAction(tr("添加"));
   _draging_index = -1;
   connect(this, &QListView::doubleClicked, this, &ImageBox::handleDoubleClick);
   connect(this, &QListView::customContextMenuRequested, this,
@@ -335,11 +335,11 @@ void ImageBox::handleCustomContextMenu(const QPoint &pos) {
   QModelIndex index = indexAt(pos);
   if (index.isValid()) {
     // 设置删除菜单
-    QAction *del = _menu->addAction("删除");
+    QAction *del = _menu->addAction(tr("删除"));
     connect(del, &QAction::triggered, this,
             [this, &index]() { model()->removeRow(index.row()); });
     // 设置保存菜单
-    QAction *save = _menu->addAction("另存为");
+    QAction *save = _menu->addAction(tr("另存为"));
     connect(save, &QAction::triggered, this, [this, &index]() {
       auto file_path = model()->data(index, Qt::DisplayRole);
       auto pixmap = model()->data(index, Qt::DecorationRole);

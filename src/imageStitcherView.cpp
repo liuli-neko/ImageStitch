@@ -17,10 +17,10 @@ void ImageStitcherView::SetupUi(const int width, const int height) {
   input_image_box->setMaximumWidth(300);
   result_image_view = new ImageView();
   stitch_button = new QPushButton();
-  stitch_button->setText("拼接");
+  stitch_button->setText(tr("拼接"));
   stitch_button->setMaximumWidth(100);
   config_button = new QPushButton();
-  config_button->setText("配置");
+  config_button->setText(tr("配置"));
   config_button->setMaximumWidth(100);
 
   QGridLayout *gridLayout = new QGridLayout();
@@ -51,7 +51,7 @@ void ImageStitcherView::SetupUi(const int width, const int height) {
   connect(config_button, &QPushButton::clicked, [this](bool checker) {
     ConfigDialog *config_dialog = new ConfigDialog;
     CustomizeTitleWidget *config_window = new CustomizeTitleWidget();
-    config_window->setWindowTitle("Stitcher Configuration");
+    config_window->setWindowTitle(tr("配置"));
     config_window->setCentralWidget(config_dialog);
     config_window->setWindowResizable(false);
     auto configs = image_stitcher.ParamTable();
@@ -59,13 +59,12 @@ void ImageStitcherView::SetupUi(const int width, const int height) {
     int i = 0;
     for (auto &config : configs) {
       QVector<QString> options;
-      options.push_back("default");
       for (auto &option : config.options) {
         options.push_back(option.c_str());
       }
       config_dialog->AddItem(config.title.c_str(), options,
-                             config.description.c_str());
-      auto current = params.GetParam(config.title, std::string("default"));
+                             tr(config.description.c_str()));
+      auto current = params.GetParam(config.title, std::string());
       config_dialog->SetDafultText(i, current.c_str());
       ++i;
     }
@@ -89,9 +88,9 @@ void ImageStitcherView::CreateFromDirectory(const QString &path) {
       std::cout << file_info.filePath().toStdString() << std::endl;
       m_model->addItem(file_info.filePath());
     }
-    Message("文件夹: " + path + " .中的图片已成功导入", 10000);
+    Message(tr("文件夹: ") + path + tr(" .中的图片已成功导入"), 10000);
   } else {
-    Message("文件夹: " + path + " .不存在", 10000);
+    Message(tr("文件夹: ") + path + tr(" .不存在"), 10000);
   }
   // TODO: 导出当前stitcher设置
   // TODO: 从文件导入stitcher设置
@@ -138,11 +137,11 @@ void ImageStitcherView::Stitch() {
 
 void ImageStitcherView::ConfigurationStitcher(
     QVector<QPair<QString, QString>> settings) {
-  Parameters params;
+  Parameters& params = image_stitcher.GetParams();
   for (const auto &[item, option] : settings) {
     params.SetParam(item.toStdString(), option.toStdString());
   }
-  image_stitcher.SetParams(params);
+  image_stitcher.SetParams();
 }
 
 void ImageStitcherView::paintEvent(QPaintEvent *event) {
@@ -171,8 +170,8 @@ ConfigDialog::ConfigDialog(QWidget *parent) : QDialog(parent) {
   view->setFixedWidth(570);
 
   // Create confirm and cancel buttons
-  confirm_button = new QPushButton("确认");
-  cancel_button = new QPushButton("取消");
+  confirm_button = new QPushButton(tr("确认"));
+  cancel_button = new QPushButton(tr("取消"));
 
   // Set button geometry
   QGridLayout *grid_layout = new QGridLayout();
@@ -192,7 +191,13 @@ ConfigDialog::ConfigDialog(QWidget *parent) : QDialog(parent) {
   main_layout->setSpacing(0);
 
   // confirm_button->setGeometry(QRect(120, 750, 80, 30));
-  confirm_button->setStyleSheet("background-color: lightblue;");
+  confirm_button->setStyleSheet(
+      "QPushButton{background:#00BFFF}"
+      "QPushButton::hover{background:rgb(110,115,100);}"
+      "QPushButton::pressed{background:#eb7350;}"
+      "QPushButton{border: 1px solid blue}"
+      "QPushButton{border-radius: 3px}"
+      "QPushButton{padding: 2px 10px 2px 10px}");
   // cancel_button->setGeometry(QRect(400, 750, 80, 30));
   setLayout(main_layout);
   // Connect button signals to slots

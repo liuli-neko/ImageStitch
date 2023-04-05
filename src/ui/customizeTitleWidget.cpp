@@ -15,8 +15,6 @@ TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
   // QWidget::setMovable(false);
 
   hBoxLayout = new QHBoxLayout();
-  hBoxLayout->setDirection(QBoxLayout::LeftToRight);
-  hBoxLayout->setContentsMargins(0, 0, 0, 0);
 
   titleLabel = new QLabel();
   titleLabel->setAlignment(Qt::AlignCenter);

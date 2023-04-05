@@ -49,7 +49,7 @@ class ImageStitcherView : public QWidget {
   void ShowImage(const QPixmap &pixmap);
   void ShowImage(const QImage &image);
   void ShowMessage(const QString &message);
-  inline Parameters Params() { return image_stitcher.GetParams(); }
+  inline Parameters &Params() { return image_stitcher.GetParams(); }
   inline void SetParams(const Parameters &params) {
     image_stitcher.SetParams(params);
   }

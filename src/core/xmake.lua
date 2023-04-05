@@ -26,7 +26,7 @@ target("qtCommon")
 
 target("ImageStitchCore")
     set_kind("static")
-    add_deps("signal")
+    add_deps("signal", "common")
     add_packages("opencv", "eigen", "glog", "nlohmann_json")
     add_headerfiles("imageStitch/*.h")
     add_files("imageStitcher/*.cpp")

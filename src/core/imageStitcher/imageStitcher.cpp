@@ -486,17 +486,23 @@ auto ImageStitcher::ParamTable() -> std::vector<ConfigItem> {
   init();
   return CONFIG_TABLE;
 }
-auto ImageStitcher::SetParams(const Parameters &params) -> void {
-  this->params = params;
+auto ImageStitcher::SetParams(const Parameters &_params) -> void {
+  if (!_params.Empty()) {
+    this->params = _params;
+  }
   // 拼接模式
   auto stitcher_mode = "mode." + params.GetParam("mode", std::string());
-  if (ALL_CONFIGS.find(stitcher_mode) != ALL_CONFIGS.end()) {
-    LOG(INFO) << stitcher_mode;
-    cv_stitcher = dynamic_cast<CallAble<cv::Ptr<cv::Stitcher>> *>(
-                      ALL_CONFIGS.at(stitcher_mode).get())
-                      ->call();
-  } else {
-    cv_stitcher = cv::Stitcher::create();
+  if (stitcher_mode != current_stitcher_mode) {
+    if (ALL_CONFIGS.find(stitcher_mode) != ALL_CONFIGS.end()) {
+      LOG(INFO) << stitcher_mode;
+      cv_stitcher = dynamic_cast<CallAble<cv::Ptr<cv::Stitcher>> *>(
+                        ALL_CONFIGS.at(stitcher_mode).get())
+                        ->call();
+      current_stitcher_mode = stitcher_mode;
+    } else {
+      cv_stitcher = cv::Stitcher::create();
+      current_stitcher_mode = "mode.PANORAMA";
+    }
   }
 
   // 相机参数推断模型
@@ -599,7 +605,22 @@ auto ImageStitcher::SetParams(const Parameters &params) -> void {
 
   signal_run_message.notify("配置已生效.", 3000);
 }
-ImageStitcher::ImageStitcher() { init(); }
+ImageStitcher::ImageStitcher() {
+  init();
+  if (std::filesystem::exists("./configuration.json")) {
+    params.Load("./configuration.json");
+  } else {
+    params.FromString(
+        "{\"blender\":{\"value\":\"MultiBandBlender\"},\"bundleAdjuster\":{"
+        "\"value\":\"BundleAdjusterRay\"},\"estimator\":{\"value\":"
+        "\"HomographyBasedEstimator\"},\"exposureCompensator\":{\"value\":"
+        "\"BlocksChannelsCompensator\"},\"featuresFinder\":{\"value\":\"ORB\"},"
+        "\"featuresMatcher\":{\"value\":\"BestOf2NearestMatcher\"},"
+        "\"interpolationFlags\":{\"value\":\"INTER_CUBIC\"},\"mode\":{"
+        "\"value\":\"PANORAMA\"},\"seamFinder\":{\"value\":"
+        "\"GraphCutSeamFinder\"},\"warper\":{\"value\":\"PaniniWarper\"}}");
+  }
+}
 auto ImageStitcher::AddImage(ImagePtr image) -> bool {
   images.push_back(image);
   return true;

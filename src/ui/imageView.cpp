@@ -23,7 +23,7 @@ ImageView::ImageView(const QPixmap &pixmap, QWidget *parent) : QWidget(parent) {
 }
 
 void ImageView::setupUi(int iWidth, int iHeight) {
-  setWindowTitle("image View");
+  setWindowTitle(tr("图像"));
   resize(iWidth, iHeight);
   _iXOffset = 0;
   _iYOffset = 0;
@@ -42,31 +42,32 @@ ImageView::~ImageView() {
 void ImageView::Menu(const QPoint &pos) {
   QMenu menu;
   if (!_pixmap.isNull()) {
-    menu.addAction("顺时针旋转90°", [this]() {
+    menu.addAction(tr("顺时针旋转90°"), [this]() {
       QMatrix leftmatrix;
       leftmatrix.rotate(90);
       QPixmap pix =
           GetPixmap().transformed(leftmatrix, Qt::SmoothTransformation);
       SetPixmap(pix);
     });
-    menu.addAction("逆时针旋转90°", [this]() {
+    menu.addAction(tr("逆时针旋转90°"), [this]() {
       QMatrix leftmatrix;
       leftmatrix.rotate(270);
       QPixmap pix =
           GetPixmap().transformed(leftmatrix, Qt::SmoothTransformation);
       SetPixmap(pix);
     });
-    menu.addAction("水平翻转", [this]() {
+    menu.addAction(tr("水平翻转"), [this]() {
       SetPixmap(
           QPixmap::fromImage(GetPixmap().toImage().mirrored(true, false)));
     });
-    menu.addAction("竖直翻转", [this]() {
+    menu.addAction(tr("竖直翻转"), [this]() {
       SetPixmap(
           QPixmap::fromImage(GetPixmap().toImage().mirrored(false, true)));
     });
-    menu.addAction("保存图像", [this]() {
+    menu.addSeparator();
+    menu.addAction(tr("保存图像"), [this]() {
       QString fileName = QFileDialog::getSaveFileName(
-          this, tr("保存图像"), "未命名", tr("Images (*.png *.jpg)"));
+          this, tr("保存图像"), tr("未命名"), tr("Images (*.png *.jpg)"));
       if (!fileName.isEmpty()) {
         _pixmap.save(fileName);
       }

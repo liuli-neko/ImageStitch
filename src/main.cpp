@@ -16,6 +16,6 @@ int main(int argc, char *argv[]) {
   MainWindow w;
   w.show();
   a.setFont(QFont("黑体", 12));
-  QApplication::setStyle(QStyleFactory::create("fusion"));
+  // QApplication::setStyle(QStyleFactory::create("fusion"));
   return a.exec();
 }

@@ -16,8 +16,8 @@ class Parameters {
 
  public:
   template <typename T>
-  auto SetParam(const std::string &param_name, const T &value, const bool is_cover = true)
-      -> void {
+  auto SetParam(const std::string &param_name, const T &value,
+                const bool is_cover = true) -> void {
     nlohmann::json param;
     if (params.find(param_name) == params.end()) {
       param["value"] = value;
@@ -35,6 +35,7 @@ class Parameters {
   auto Load(const std::string &file_name) -> void;
   auto ToString() -> std::string;
   auto FromString(const char *str) -> void;
+  auto Empty() const -> bool;
 
   friend void to_json(nlohmann::json &j, const Parameters &params);
   friend void from_json(const nlohmann::json &j, Parameters &params);

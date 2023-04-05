@@ -156,8 +156,8 @@ class CustomizeTitleWidget : public QWidget {
   QVBoxLayout *bottom_layout = nullptr;
 
  private:
-  const int MARGIN_MIN_SIZE = -5;
-  const int MARGIN_MAX_SIZE = 5;
+  const int MARGIN_MIN_SIZE = 0;
+  const int MARGIN_MAX_SIZE = 10;
   enum MovingDirection {
     NONE,
     BOTTOMRIGHT,
