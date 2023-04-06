@@ -328,7 +328,36 @@ void ImageBox::handleDoubleClick(const QModelIndex &_index) {
   widget->setWindowTitle(
       QFileInfo(data[Qt::DisplayRole].value<QString>()).baseName());
   widget->setAttribute(Qt::WA_DeleteOnClose, true);
-  widget->setWindowFlags(widget->windowFlags() | Qt::WindowStaysOnTopHint);
+  QToolButton *on_top = new QToolButton();
+  widget->addWidget(on_top, 4);
+  QImage top_icon("./top.jpg");
+  if (top_icon.isNull()) {
+    on_top->setText(tr("置顶"));
+  } else {
+    on_top->setIcon(QPixmap::fromImage(top_icon));
+  }
+  auto default_flags = widget->windowFlags();
+  connect(
+      on_top, &QToolButton::clicked, widget,
+      [widget, on_top, top_icon, default_flags]() {
+        if (widget->windowFlags() & Qt::WindowStaysOnTopHint) {
+          widget->setWindowFlags(default_flags);
+          if (top_icon.isNull()) {
+            on_top->setText(tr("置顶"));
+          } else {
+            on_top->setIcon(QPixmap::fromImage(top_icon));
+          }
+          widget->show();
+        } else {
+          if (top_icon.isNull()) {
+            on_top->setText(tr("取消置顶"));
+          } else {
+            on_top->setIcon(QPixmap::fromImage(top_icon.mirrored(false, true)));
+          }
+          widget->setWindowFlags(default_flags | Qt::WindowStaysOnTopHint);
+          widget->show();
+        }
+      });
   widget->show();
 }
 void ImageBox::handleCustomContextMenu(const QPoint &pos) {

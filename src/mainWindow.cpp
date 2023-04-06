@@ -32,7 +32,7 @@ class MainWindow {
     if (main_window->objectName().isEmpty())
       main_window->setObjectName("Image Stitch(NekoIS)");
     main_window->setWindowTitle("Image Stitch(NekoIS)");
-    main_window->setWindowIcon(QPixmap("./ImageStitch.png").scaled(30, 30));
+    main_window->setWindowIcon(QPixmap("./ImageStitch.png").scaled(25, 25));
     main_window->resize(800, 600);
 
     tab_widget = new QTabWidget();

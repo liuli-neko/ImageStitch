@@ -186,33 +186,25 @@ void TitleBar::mouseDoubleClickEvent(QMouseEvent *event) {
 void TitleBar::paintEvent(QPaintEvent *event) {
   QPainter painter(this);
   auto self_rect = rect();
-  painter.setPen(QColor(250, 250, 250));
+  painter.setPen(QColor(100, 100, 100));
   painter.drawLine(0, self_rect.height() - 1, self_rect.width(),
                    self_rect.height() - 1);
   QWidget::paintEvent(event);
 }
 
-void TitleBar::setIcon(const QPixmap &icon) { titleIcon->setPixmap(icon); }
+void TitleBar::setIcon(const QPixmap &icon) {
+  titleIcon->setPixmap(icon);
+}
 
 void TitleBar::addWidget(QWidget *widget, int index, int stretch,
                          Qt::Alignment alignment) {
   hBoxLayout->insertWidget(index, widget, stretch, alignment);
 }
 
-void TitleBar::setTitle(const QString &title) {
-  titleLabel->setText(title);
-  // QFontMetrics font_width(titleLabel->font());  // 得到每个字符的宽度
-  // QString elide_note =
-  //     font_width.elidedText(title, Qt::ElideRight, 300);  // 最大宽度300像素
-  // titleLabel->setText(elide_note);  // 显示省略好的字符串
-  // titleLabel->setToolTip(title);    // 设置tooltips
-}
+void TitleBar::setTitle(const QString &title) { titleLabel->setText(title); }
 
 CustomizeTitleWidget::CustomizeTitleWidget(QWidget *parent) : QWidget(parent) {
-  setWindowFlags(Qt::FramelessWindowHint);  // 隐藏窗体原始边框
-  // setContextMenuPolicy(
-  //     Qt::NoContextMenu);  //
-  //     禁用右键菜单（未知问题，右键会弹出一个选项框，选中会隐藏toolbar）
+  setWindowFlags(Qt::FramelessWindowHint);     // 隐藏窗体原始边框
   setAttribute(Qt::WA_StyledBackground);       // 启用样式背景绘制
   setAttribute(Qt::WA_TranslucentBackground);  // 设置背景透明
   setAttribute(Qt::WA_Hover);                  // 启动鼠标悬浮追踪
@@ -274,10 +266,12 @@ void CustomizeTitleWidget::setStatusBar(QStatusBar *statusBar) {
 
 void CustomizeTitleWidget::setWindowTitle(const QString &title) {
   title_bar->setTitle(title);
+  QWidget::setWindowTitle(title);
 }
 
 void CustomizeTitleWidget::setWindowIcon(const QPixmap &icon) {
   title_bar->setIcon(icon);
+  QWidget::setWindowIcon(icon);
 }
 
 void CustomizeTitleWidget::addWidget(QWidget *widget, int index, int stretch,

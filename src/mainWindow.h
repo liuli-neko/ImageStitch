@@ -19,7 +19,7 @@ class MainWindow : public CustomizeTitleWidget {
   virtual ~MainWindow();
 
  public:
-  ImageStitcherView *addTab(QString tabName = "未命名");
+  ImageStitcherView *addTab(QString tabName = tr("未命名"));
   void handleTableDragEnter(QDragEnterEvent *mouseEvent);
   bool eventFilter(QObject *obj, QEvent *event) override;
 

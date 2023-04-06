@@ -53,6 +53,8 @@ void ImageStitcherView::SetupUi(const int width, const int height) {
     CustomizeTitleWidget *config_window = new CustomizeTitleWidget();
     config_window->setWindowTitle(tr("配置"));
     config_window->setCentralWidget(config_dialog);
+    config_window->setWindowFlags(config_window->windowFlags() |
+                                  Qt::WindowStaysOnTopHint);
     // config_window->setWindowResizable(false);
     auto configs = image_stitcher.ParamTable();
     const auto &params = image_stitcher.GetParams();
@@ -92,8 +94,6 @@ void ImageStitcherView::CreateFromDirectory(const QString &path) {
   } else {
     Message(tr("文件夹: ") + path + tr(" .不存在"), 10000);
   }
-  // TODO: 导出当前stitcher设置
-  // TODO: 从文件导入stitcher设置
 }
 
 void ImageStitcherView::ShowImage(const QPixmap &pixmap) {
@@ -137,7 +137,7 @@ void ImageStitcherView::Stitch() {
 
 void ImageStitcherView::ConfigurationStitcher(
     QVector<QPair<QString, QString>> settings) {
-  Parameters& params = image_stitcher.GetParams();
+  Parameters &params = image_stitcher.GetParams();
   for (const auto &[item, option] : settings) {
     params.SetParam(item.toStdString(), option.toStdString());
   }
