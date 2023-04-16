@@ -1,5 +1,6 @@
 #ifdef WIN
 #include <windows.h>
+#define DEBUG
 #endif
 #include <QApplication>
 #include <QStyleFactory>

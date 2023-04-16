@@ -25,8 +25,6 @@ class MainWindow {
   QAction *action_import_for_current_tab;
   // QMenuBar *menubar;
   QTabWidget *tab_widget;
-  // QMenu *menuoriginal;
-  QStatusBar *statusbar;
 
   void setupUi(::MainWindow *main_window) {
     if (main_window->objectName().isEmpty())
@@ -37,7 +35,6 @@ class MainWindow {
 
     tab_widget = new QTabWidget();
     main_window->setCentralWidget(tab_widget);
-    // tab_widget->setTabShape(QTabWidget::TabShape::Triangular);
 
     auto image_stitch_central = new ImageStitch::ImageStitcherView();
     tab_widget->setMovable(true);
@@ -45,90 +42,21 @@ class MainWindow {
     tab_widget->installEventFilter(main_window);
     tab_widget->setAcceptDrops(true);
 
-    QWidget::connect(tab_widget, &QTabWidget::customContextMenuRequested,
-                     main_window, &::MainWindow::TabMenu);
-    QWidget::connect(tab_widget, &QTabWidget::tabBarDoubleClicked, main_window,
-                     &::MainWindow::TabBarEditor);
-    QWidget::connect(tab_widget, &QTabWidget::tabCloseRequested, main_window,
-                     &::MainWindow::TabClose);
     image_stitch_central->setSizePolicy(QSizePolicy::Expanding,
                                         QSizePolicy::Expanding);
 
     action_add_tab = new QAction();
     action_add_tab->setObjectName("action_add_tab");
-    QWidget::connect(action_add_tab, &QAction::triggered, main_window,
-                     [main_window, this](bool checked) -> void {
-                       auto tab = main_window->addTab();
-                       tab_widget->setCurrentWidget(tab);
-                     });
+
     action_add_tab_from_files = new QAction();
     action_add_tab_from_files->setObjectName("action_add_tab_from_files");
-    QWidget::connect(
-        action_add_tab_from_files, &QAction::triggered, main_window,
-        [main_window, this](bool checked) -> void {
-          QFileDialog file_dialog;
-          file_dialog.setWindowTitle(main_window->tr("添加图像"));
-          file_dialog.setFileMode(QFileDialog::DirectoryOnly);
-          file_dialog.setViewMode(QFileDialog::Detail);
-          if (file_dialog.exec()) {
-            QString dir_name = file_dialog.selectedFiles()[0];
-            auto tab = main_window->addTab(QFileInfo(dir_name).baseName());
-            tab_widget->setCurrentWidget(tab);
-            tab->CreateFromDirectory(dir_name);
-          }
-        });
+
     action_export_current_tab = new QAction();
     action_export_current_tab->setObjectName("action_export_current_tab");
-    QWidget::connect(
-        action_export_current_tab, &QAction::triggered, main_window,
-        [main_window, this](bool checked) {
-          auto tab = dynamic_cast<ImageStitch::ImageStitcherView *>(
-              tab_widget->currentWidget());
-          auto params = tab->Params();
-          QString tab_title = tab_widget->tabText(tab_widget->currentIndex());
-          QFileDialog file_dialog;
-          file_dialog.setWindowTitle(main_window->tr("导出配置文件"));
-          file_dialog.setFileMode(QFileDialog::AnyFile);
-          file_dialog.setNameFilter(main_window->tr("configuration (*.json)"));
-          file_dialog.setViewMode(QFileDialog::Detail);
-          file_dialog.selectFile("./" + tab_title + ".json");
-          if (file_dialog.exec()) {
-            QString file_name = file_dialog.selectedFiles()[0];
-            if (!file_name.endsWith(".json")) {
-              file_name = file_name.append(".json");
-            }
-            QFile file(file_name);
-            file.open(QIODevice::WriteOnly);
-            file.write(params.ToString().c_str());
-            file.close();
-          }
-        });
+
     action_import_for_current_tab = new QAction();
     action_import_for_current_tab->setObjectName(
         "action_import_for_current_tab");
-    QWidget::connect(
-        action_import_for_current_tab, &QAction::triggered, main_window,
-        [main_window, this](bool checked) {
-          auto tab = dynamic_cast<ImageStitch::ImageStitcherView *>(
-              tab_widget->currentWidget());
-          QFileDialog file_dialog;
-          file_dialog.setWindowTitle(main_window->tr("导入配置文件"));
-          file_dialog.setFileMode(QFileDialog::ExistingFile);
-          file_dialog.setNameFilter(main_window->tr("configuration (*.json)"));
-          file_dialog.setViewMode(QFileDialog::Detail);
-          if (file_dialog.exec()) {
-            QString file_name = file_dialog.selectedFiles()[0];
-            QFile file(file_name);
-            if (file.exists()) {
-              file.open(QIODevice::ReadOnly);
-              auto data = file.readAll();
-              file.close();
-              Parameters params;
-              params.FromString(data);
-              tab->SetParams(params);
-            }
-          }
-        });
 
     menuBar = new QMenuBar();
     menuBar->setObjectName("menuBar");
@@ -136,10 +64,6 @@ class MainWindow {
 
     file_menu = new QMenu(menuBar);
     file_menu->setObjectName("file_menu");
-
-    statusbar = new QStatusBar(main_window);
-    statusbar->setObjectName("statusbar");
-    main_window->setStatusBar(statusbar);
 
     menuBar->addAction(file_menu->menuAction());
     file_menu->addAction(action_add_tab);
@@ -166,6 +90,77 @@ class MainWindow {
 MainWindow::MainWindow(QWidget *parent)
     : CustomizeTitleWidget(parent), ui(new Ui::MainWindow) {
   ui->setupUi(this);
+  connect(ui->tab_widget, &QTabWidget::customContextMenuRequested, this,
+          &::MainWindow::TabMenu);
+  connect(ui->tab_widget, &QTabWidget::tabBarDoubleClicked, this,
+          &::MainWindow::TabBarEditor);
+  connect(ui->tab_widget, &QTabWidget::tabCloseRequested, this,
+          &::MainWindow::TabClose);
+
+  connect(ui->action_add_tab, &QAction::triggered, this,
+          [this](bool checked) -> void {
+            auto tab = addTab();
+            ui->tab_widget->setCurrentWidget(tab);
+          });
+  connect(ui->action_add_tab_from_files, &QAction::triggered, this,
+          [this](bool checked) -> void {
+            QFileDialog file_dialog;
+            file_dialog.setWindowTitle(tr("添加图像"));
+            file_dialog.setFileMode(QFileDialog::DirectoryOnly);
+            file_dialog.setViewMode(QFileDialog::Detail);
+            if (file_dialog.exec()) {
+              QString dir_name = file_dialog.selectedFiles()[0];
+              auto tab = addTab(QFileInfo(dir_name).baseName());
+              ui->tab_widget->setCurrentWidget(tab);
+              tab->CreateFromDirectory(dir_name);
+            }
+          });
+  connect(ui->action_export_current_tab, &QAction::triggered, this,
+          [this](bool checked) {
+            auto tab = dynamic_cast<ImageStitch::ImageStitcherView *>(
+                ui->tab_widget->currentWidget());
+            auto params = tab->Params();
+            QString tab_title =
+                ui->tab_widget->tabText(ui->tab_widget->currentIndex());
+            QFileDialog file_dialog;
+            file_dialog.setWindowTitle(tr("导出配置文件"));
+            file_dialog.setFileMode(QFileDialog::AnyFile);
+            file_dialog.setNameFilter(tr("configuration (*.json)"));
+            file_dialog.setViewMode(QFileDialog::Detail);
+            file_dialog.selectFile("./" + tab_title + ".json");
+            if (file_dialog.exec()) {
+              QString file_name = file_dialog.selectedFiles()[0];
+              if (!file_name.endsWith(".json")) {
+                file_name = file_name.append(".json");
+              }
+              QFile file(file_name);
+              file.open(QIODevice::WriteOnly);
+              file.write(params.ToString().c_str());
+              file.close();
+            }
+          });
+  connect(ui->action_import_for_current_tab, &QAction::triggered, this,
+          [this](bool checked) {
+            auto tab = dynamic_cast<ImageStitch::ImageStitcherView *>(
+                ui->tab_widget->currentWidget());
+            QFileDialog file_dialog;
+            file_dialog.setWindowTitle(tr("导入配置文件"));
+            file_dialog.setFileMode(QFileDialog::ExistingFile);
+            file_dialog.setNameFilter(tr("configuration (*.json)"));
+            file_dialog.setViewMode(QFileDialog::Detail);
+            if (file_dialog.exec()) {
+              QString file_name = file_dialog.selectedFiles()[0];
+              QFile file(file_name);
+              if (file.exists()) {
+                file.open(QIODevice::ReadOnly);
+                auto data = file.readAll();
+                file.close();
+                Parameters params;
+                params.FromString(data);
+                tab->SetParams(params);
+              }
+            }
+          });
   addTab();
 }
 
@@ -215,8 +210,6 @@ ImageStitch::ImageStitcherView *MainWindow::addTab(QString tabName) {
   ImageStitch::ImageStitcherView *imageStitchView =
       new ImageStitch::ImageStitcherView();
   ui->tab_widget->addTab(imageStitchView, tabName);
-  connect(imageStitchView, &ImageStitch::ImageStitcherView::Message,
-          ui->statusbar, &QStatusBar::showMessage);
   imageStitchView->ShowMessage(tr("欢迎使用图像拼接软件（NekoIS）\n") +
                                tr("请拖拽或右键添加图片到待拼接图像列表中\n") +
                                tr("点击拼接可以完成图像拼接\n") +

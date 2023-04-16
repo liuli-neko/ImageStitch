@@ -14,8 +14,12 @@ using Image = cv::Mat;
 using ImagePtr = Ptr<Image>;
 using Mat = cv::Mat;
 using MatPtr = Ptr<Mat>;
-using Feature2D = Ptr<cv::Feature2D>;
+using Feature2D = cv::Feature2D;
 using KeyPoint = cv::KeyPoint;
+using ImageFeatures = cv::detail::ImageFeatures;
+using KeyPoints = std::vector<cv::KeyPoint>;
+using Descriptors = cv::UMat;
+using MatchesInfo = cv::detail::MatchesInfo;
 
 inline Image ImageLoad(const std::string& file_path) {
   if (!std::filesystem::exists(file_path)) {
