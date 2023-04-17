@@ -16,7 +16,7 @@
 
 namespace Ui {
 class MainWindow {
- public:
+public:
   QMenu *file_menu;
   QMenuBar *menuBar;
   QAction *action_add_tab;
@@ -28,7 +28,7 @@ class MainWindow {
 
   void setupUi(::MainWindow *main_window) {
     if (main_window->objectName().isEmpty())
-      main_window->setObjectName("Image Stitch(NekoIS)");
+      main_window->setObjectName("main_window");
     main_window->setWindowTitle("Image Stitch(NekoIS)");
     main_window->setWindowIcon(QPixmap("./ImageStitch.png").scaled(25, 25));
     main_window->resize(800, 600);
@@ -75,7 +75,7 @@ class MainWindow {
     retranslateUi(main_window);
 
     QMetaObject::connectSlotsByName(main_window);
-  }  // setupUi
+  } // setupUi
 
   void retranslateUi(QWidget *MainWindow) {
     action_add_tab->setText(MainWindow->tr("新建"));
@@ -83,9 +83,9 @@ class MainWindow {
     action_export_current_tab->setText(MainWindow->tr("导出"));
     action_import_for_current_tab->setText(MainWindow->tr("导入"));
     file_menu->setTitle(MainWindow->tr("文件"));
-  }  // retranslateUi
+  } // retranslateUi
 };
-}  // namespace Ui
+} // namespace Ui
 
 MainWindow::MainWindow(QWidget *parent)
     : CustomizeTitleWidget(parent), ui(new Ui::MainWindow) {
@@ -104,12 +104,9 @@ MainWindow::MainWindow(QWidget *parent)
           });
   connect(ui->action_add_tab_from_files, &QAction::triggered, this,
           [this](bool checked) -> void {
-            QFileDialog file_dialog;
-            file_dialog.setWindowTitle(tr("添加图像"));
-            file_dialog.setFileMode(QFileDialog::DirectoryOnly);
-            file_dialog.setViewMode(QFileDialog::Detail);
-            if (file_dialog.exec()) {
-              QString dir_name = file_dialog.selectedFiles()[0];
+            auto dir_name =
+                QFileDialog::getExistingDirectory(this, tr("添加图像"), "./");
+            if (!dir_name.isEmpty()) {
               auto tab = addTab(QFileInfo(dir_name).baseName());
               ui->tab_widget->setCurrentWidget(tab);
               tab->CreateFromDirectory(dir_name);
@@ -122,17 +119,10 @@ MainWindow::MainWindow(QWidget *parent)
             auto params = tab->Params();
             QString tab_title =
                 ui->tab_widget->tabText(ui->tab_widget->currentIndex());
-            QFileDialog file_dialog;
-            file_dialog.setWindowTitle(tr("导出配置文件"));
-            file_dialog.setFileMode(QFileDialog::AnyFile);
-            file_dialog.setNameFilter(tr("configuration (*.json)"));
-            file_dialog.setViewMode(QFileDialog::Detail);
-            file_dialog.selectFile("./" + tab_title + ".json");
-            if (file_dialog.exec()) {
-              QString file_name = file_dialog.selectedFiles()[0];
-              if (!file_name.endsWith(".json")) {
-                file_name = file_name.append(".json");
-              }
+            auto file_name = QFileDialog::getSaveFileName(
+                this, tr("导出配置文件"), "./" + tab_title + ".json",
+                "configural (*.json)");
+            if (!file_name.isEmpty()) {
               QFile file(file_name);
               file.open(QIODevice::WriteOnly);
               file.write(params.ToString().c_str());
@@ -210,10 +200,6 @@ ImageStitch::ImageStitcherView *MainWindow::addTab(QString tabName) {
   ImageStitch::ImageStitcherView *imageStitchView =
       new ImageStitch::ImageStitcherView();
   ui->tab_widget->addTab(imageStitchView, tabName);
-  imageStitchView->ShowMessage(tr("欢迎使用图像拼接软件（NekoIS）\n") +
-                               tr("请拖拽或右键添加图片到待拼接图像列表中\n") +
-                               tr("点击拼接可以完成图像拼接\n") +
-                               tr("点击配置可以更改拼接算法"));
   return imageStitchView;
 }
 

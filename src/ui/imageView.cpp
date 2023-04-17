@@ -90,18 +90,22 @@ void ImageView::ShowMessage(const QString &message) {
 }
 
 void ImageView::SetImage(const QImage &image) {
+  _pixmap = QPixmap::fromImage(image);
   if (!image.isNull()) {
-    _pixmap = QPixmap::fromImage(image);
     AutoScale();
-    _textLabel->close();
+    _textLabel->setVisible(false);
+  } else {
+    _textLabel->setVisible(true);
   }
 }
 
 void ImageView::SetPixmap(const QPixmap &pixmap) {
+  _pixmap = pixmap;
   if (!pixmap.isNull()) {
-    _pixmap = pixmap;
     AutoScale();
-    _textLabel->close();
+    _textLabel->setVisible(false);
+  } else {
+    _textLabel->setVisible(true);
   }
 }
 
@@ -201,4 +205,4 @@ void ImageView::wheelEvent(QWheelEvent *event) {
 }
 QSize ImageView::sizeHint() const { return _pixmap.size(); }
 
-}  // namespace ImageStitch
+} // namespace ImageStitch

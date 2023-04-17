@@ -36,15 +36,17 @@ class StatusShow : public Trackable {
 
 TEST(ImageStitcherTest, CvStitcherTest) {
   std::shared_ptr<ImageStitcher> imageStitcher(new ImageStitcher());
-  std::filesystem::path path = "E:\\download\\files\\20220803\\3";
+  std::filesystem::path path = "../../../../../../../download/files/20220803/3";
   std::vector<std::string> files;
   for (auto &file : std::filesystem::directory_iterator(path)) {
     if (file.is_regular_file()) {
       auto file_path = file.path();
-      std::cout << file_path << std::endl;
       files.push_back(file_path.string());
     }
   }
+  std::sort(files.begin(), files.end());
+  std::for_each(files.begin(), files.end(),
+                [](std::string a) { std::cout << a << std::endl; });
   imageStitcher->SetImages(files);
 
   LOG(INFO) << "start Stitch image";
@@ -55,7 +57,7 @@ TEST(ImageStitcherTest, CvStitcherTest) {
   Parameters params;
   params.SetParam("mode", "PANORAMA");
   params.SetParam("estimator", "HomographyBasedEstimator");
-  params.SetParam("featuresFinder", "SIFT");
+  params.SetParam("featuresFinder", "AKAZE");
   params.SetParam("featuresMatcher", "BestOf2NearestRangeMatcher");
   params.SetParam("warper", "PlaneWarper");
   params.SetParam("seamFinder", "DpSeamFinder");
@@ -83,10 +85,11 @@ TEST(ImageStitcherTest, CvStitcherTest) {
   feature_match1->setValidator(validator);
   feature_match2->setValidator(validator);
   feature_match->setText("show match");
+  std::vector<ImagePtr> images = imageStitcher->GetImages();
   QWidget::connect(
       feature_match, &QPushButton::clicked,
-      [imageStitcher, feature_match1, feature_match2, view1, view2,
-       view3](bool checked) {
+      [imageStitcher, feature_match1, feature_match2, view1, view2, view3,
+       images](bool checked) {
         if (!feature_match1->text().isEmpty() &&
             !feature_match2->text().isEmpty()) {
           bool ok1, ok2;
@@ -94,15 +97,15 @@ TEST(ImageStitcherTest, CvStitcherTest) {
               b = feature_match2->text().toInt(&ok2);
 
           if (ok1 && ok2) {
-            imageStitcher->Features(a);
-            imageStitcher->Features(b);
-            imageStitcher->Matcher(a, b);
-            view1->SetImage(
-                cv2qt::CvMat2QImage(imageStitcher->DrawKeypoint(a)));
-            view2->SetImage(
-                cv2qt::CvMat2QImage(imageStitcher->DrawKeypoint(b)));
-            view3->SetImage(
-                cv2qt::CvMat2QImage(imageStitcher->DrawMatches(a, b)));
+            auto f1 = imageStitcher->Features(*images[a]);
+            auto f2 = imageStitcher->Features(*images[b]);
+            auto m = imageStitcher->Matcher(f1, f2);
+            view1->SetImage(cv2qt::CvMat2QImage(
+                imageStitcher->DrawKeypoint(*images[a], f1)));
+            view2->SetImage(cv2qt::CvMat2QImage(
+                imageStitcher->DrawKeypoint(*images[b], f2)));
+            view3->SetImage(cv2qt::CvMat2QImage(imageStitcher->DrawMatches(
+                *images[a], f1, *images[b], f2, m[1])));
           }
         }
       });

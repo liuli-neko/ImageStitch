@@ -17,7 +17,6 @@ void ImageStitcherView::SetupUi(const int width, const int height) {
   input_image_box = new ImageBox();
   m_model = new ImageItemModel();
   input_image_box->setModel(m_model);
-  input_image_box->setMaximumWidth(300);
   stitch_button = new QPushButton();
   stitch_button->setText(tr("拼接"));
   stitch_button->setMaximumWidth(100);
@@ -26,34 +25,47 @@ void ImageStitcherView::SetupUi(const int width, const int height) {
   config_button->setMaximumWidth(100);
   next_result = new QPushButton();
   next_result->setText(tr(">"));
-  next_result->setMaximumWidth(30);
+  next_result->setMaximumWidth(40);
   next_result->setVisible(false);
   pre_result = new QPushButton();
   pre_result->setText(tr("<"));
-  pre_result->setMaximumWidth(30);
+  pre_result->setMaximumWidth(40);
   pre_result->setVisible(false);
+  clean_images = new QPushButton();
+  clean_images->setText(tr("清空"));
+  clean_images->setMaximumWidth(100);
+  clean_images->setEnabled(false);
   statusbar = new QStatusBar();
+  result_view_widget = new ImageView();
 
   setStyleSheet("QStatusBar {border-top: 1px solid blue;}");
 
-  QGridLayout *gridLayout = new QGridLayout();
-
-  result_view_widget = new ImageView();
-  gridLayout->addWidget(input_image_box, 0, 0, 1, 1);
-  gridLayout->addWidget(stitch_button, 1, 0, 1, 1, Qt::AlignCenter);
-  gridLayout->addWidget(config_button, 2, 0, 1, 1, Qt::AlignCenter);
   QHBoxLayout *hboxLayout = new QHBoxLayout();
   hboxLayout->addWidget(pre_result, 0, Qt::AlignCenter);
   hboxLayout->addWidget(next_result, 0, Qt::AlignCenter);
   hboxLayout->setSpacing(10);
-  hboxLayout->setMargin(0);
-  gridLayout->addLayout(hboxLayout, 3, 0, 1, 1, Qt::AlignCenter);
-  gridLayout->addWidget(result_view_widget, 0, 1, 4, 1);
-  gridLayout->addWidget(statusbar, 4, 0, 1, 3);
+  hboxLayout->setContentsMargins(10, 0, 10, 0);
+
+  QVBoxLayout *gridLayout = new QVBoxLayout();
+  QSplitter *splitter = new QSplitter(Qt::Horizontal);
+  QVBoxLayout *vlayout1 = new QVBoxLayout();
+
+  vlayout1->addWidget(input_image_box);
+  vlayout1->addWidget(stitch_button, 0, Qt::AlignCenter);
+  vlayout1->addWidget(config_button, 0, Qt::AlignCenter);
+  vlayout1->addWidget(clean_images, 0, Qt::AlignCenter);
+  vlayout1->addLayout(hboxLayout, 0);
+  vlayout1->setSpacing(10);
+  vlayout1->setContentsMargins(5, 0, 0, 0);
+  QWidget *widget = new QWidget();
+  widget->setLayout(vlayout1);
+  splitter->addWidget(widget);
+  splitter->addWidget(result_view_widget);
+
+  gridLayout->addWidget(splitter, 1);
+  gridLayout->addWidget(statusbar);
   gridLayout->setSpacing(10);
   gridLayout->setMargin(5);
-  gridLayout->setColumnStretch(0, 1);
-  gridLayout->setColumnStretch(1, 5);
 
   resize(width, height);
   setLayout(gridLayout);
@@ -132,6 +144,21 @@ void ImageStitcherView::SetupUi(const int width, const int height) {
           &ImageStitcherView::ShowPreResults);
   connect(this, &ImageStitch::ImageStitcherView::Message, statusbar,
           &QStatusBar::showMessage);
+  connect(clean_images, &QPushButton::clicked, this, [this](bool checked) {
+    clean_images->setEnabled(false);
+    _solts.current_index = -1;
+    _solts.images.clear();
+    pre_result->setVisible(false);
+    next_result->setVisible(false);
+    ShowMessage(tr("欢迎使用图像拼接软件（NekoIS）\n") +
+                tr("请拖拽或右键添加图片到待拼接图像列表中\n") +
+                tr("点击拼接可以完成图像拼接\n") +
+                tr("点击配置可以更改拼接算法"));
+  });
+  ShowMessage(tr("欢迎使用图像拼接软件（NekoIS）\n") +
+              tr("请拖拽或右键添加图片到待拼接图像列表中\n") +
+              tr("点击拼接可以完成图像拼接\n") +
+              tr("点击配置可以更改拼接算法"));
 }
 
 void ImageStitcherView::ShowNextResults() {
@@ -176,6 +203,7 @@ void ImageStitcherView::ShowImage(const QImage &image) {
 }
 
 void ImageStitcherView::ShowMessage(const QString &message) {
+  result_view_widget->SetPixmap(QPixmap());
   result_view_widget->ShowMessage(message);
 }
 
@@ -195,12 +223,14 @@ void ImageStitcherView::_Solts::Result(std::vector<ImagePtr> imgs) {
   parent->stitch_button->setEnabled(true);
   LOG(INFO) << "stitcher finished";
   LOG(INFO) << "result size : " << imgs.size();
+  int n = images.size();
   for (auto image : imgs) {
     images.push_back(cv2qt::CvMat2QImage(*image));
   }
   if (images.size() > 0) {
-    parent->ShowImage(images[0]);
-    current_index = 0;
+    parent->ShowImage(images[n]);
+    parent->clean_images->setEnabled(true);
+    current_index = n;
   }
   if (images.size() > 1) {
     parent->next_result->setVisible(true);
@@ -253,13 +283,8 @@ void ImageStitcherView::paintEvent(QPaintEvent *event) {
 }
 
 ConfigDialog::ConfigDialog(QWidget *parent) : QDialog(parent) {
-  // setFixedSize(600, 800);
+  resize(600, 800);
   setWindowModality(Qt::ApplicationModal);
-  // setWindowFlags(Qt::WindowMinMaxButtonsHint | Qt::FramelessWindowHint);
-
-  // title_bar = new TitleBar(this);
-  // title_bar->setResizable(false);
-  // title_bar->setStyleSheet("border: 1px solid blue");
 
   scroll_area = new QScrollArea();
   view = new QWidget();

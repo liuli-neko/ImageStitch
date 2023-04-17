@@ -20,16 +20,16 @@ QVariant ImageItemModel::data(const QModelIndex &_index, int role) const {
     return QVariant();
   }
   switch (role) {
-    case Qt::DecorationRole:
-      return QIcon(
-          _datas.at(_index.row())[(int)Qt::DecorationRole].value<QPixmap>());
-    case Qt::DisplayRole:
-      return QString(
-          QFileInfo(
-              _datas.at(_index.row())[(int)Qt::DisplayRole].value<QString>())
-              .baseName());
-    case Qt::ToolTipRole:
-      return _datas.at(_index.row())[(int)Qt::DisplayRole].value<QString>();
+  case Qt::DecorationRole:
+    return QIcon(
+        _datas.at(_index.row())[(int)Qt::DecorationRole].value<QPixmap>());
+  case Qt::DisplayRole:
+    return QString(
+        QFileInfo(
+            _datas.at(_index.row())[(int)Qt::DisplayRole].value<QString>())
+            .baseName());
+  case Qt::ToolTipRole:
+    return _datas.at(_index.row())[(int)Qt::DisplayRole].value<QString>();
   }
   return QVariant();
 }
@@ -79,16 +79,16 @@ bool ImageItemModel::setData(const QModelIndex &_index, const QVariant &value,
   }
   QModelIndex idx;
   switch (role) {
-    case Qt::DecorationRole:
-      _datas[_index.row()][Qt::DecorationRole] = value;
-      idx = createIndex(_index.row(), 0, (void *)&_datas[_index.row()]);
-      emit dataChanged(idx, idx, {role});
-      return true;
-    case Qt::DisplayRole:
-      _datas[_index.row()][Qt::DisplayRole] = value;
-      idx = createIndex(_index.row(), 0, (void *)&_datas[_index.row()]);
-      emit dataChanged(idx, idx, {role});
-      return true;
+  case Qt::DecorationRole:
+    _datas[_index.row()][Qt::DecorationRole] = value;
+    idx = createIndex(_index.row(), 0, (void *)&_datas[_index.row()]);
+    emit dataChanged(idx, idx, {role});
+    return true;
+  case Qt::DisplayRole:
+    _datas[_index.row()][Qt::DisplayRole] = value;
+    idx = createIndex(_index.row(), 0, (void *)&_datas[_index.row()]);
+    emit dataChanged(idx, idx, {role});
+    return true;
   }
   return false;
 }
@@ -337,27 +337,27 @@ void ImageBox::handleDoubleClick(const QModelIndex &_index) {
     on_top->setIcon(QPixmap::fromImage(top_icon));
   }
   auto default_flags = widget->windowFlags();
-  connect(
-      on_top, &QToolButton::clicked, widget,
-      [widget, on_top, top_icon, default_flags]() {
-        if (widget->windowFlags() & Qt::WindowStaysOnTopHint) {
-          widget->setWindowFlags(default_flags);
-          if (top_icon.isNull()) {
-            on_top->setText(tr("置顶"));
-          } else {
-            on_top->setIcon(QPixmap::fromImage(top_icon));
-          }
-          widget->show();
-        } else {
-          if (top_icon.isNull()) {
-            on_top->setText(tr("取消置顶"));
-          } else {
-            on_top->setIcon(QPixmap::fromImage(top_icon.mirrored(false, true)));
-          }
-          widget->setWindowFlags(default_flags | Qt::WindowStaysOnTopHint);
-          widget->show();
-        }
-      });
+  connect(on_top, &QToolButton::clicked, widget,
+          [widget, on_top, top_icon, default_flags]() {
+            if (widget->windowFlags() & Qt::WindowStaysOnTopHint) {
+              widget->setWindowFlags(default_flags);
+              if (top_icon.isNull()) {
+                on_top->setText(tr("置顶"));
+              } else {
+                on_top->setIcon(QPixmap::fromImage(top_icon));
+              }
+              widget->show();
+            } else {
+              if (top_icon.isNull()) {
+                on_top->setText(tr("取消置顶"));
+              } else {
+                on_top->setIcon(
+                    QPixmap::fromImage(top_icon.mirrored(false, true)));
+              }
+              widget->setWindowFlags(default_flags | Qt::WindowStaysOnTopHint);
+              widget->show();
+            }
+          });
   widget->show();
 }
 void ImageBox::handleCustomContextMenu(const QPoint &pos) {
@@ -374,9 +374,9 @@ void ImageBox::handleCustomContextMenu(const QPoint &pos) {
       auto pixmap = model()->data(index, Qt::DecorationRole);
       QString fileName = QFileDialog::getSaveFileName(
           this,
-          tr("另存文件"),               // dialog title
-          file_path.value<QString>(),   // default directory
-          tr("Images (*.png *.jpg)"));  // filter files by extension
+          tr("另存文件"),              // dialog title
+          file_path.value<QString>(),  // default directory
+          tr("Images (*.png *.jpg)")); // filter files by extension
       pixmap.value<QPixmap>().save(fileName);
     });
     // 唤出菜单
@@ -392,13 +392,14 @@ void ImageBox::handleCustomContextMenu(const QPoint &pos) {
 void ImageBox::handleImageAdd() {
   QStringList fileNames = QFileDialog::getOpenFileNames(
       this,
-      tr("添加图像"),                      // dialog title
-      "./",                                // default directory
-      tr("Images (*.png *.jpg *.jpeg)"));  // filter files by extension
+      tr("添加图像"),                                 // dialog title
+      "./",                                           // default directory
+      "Images (*.png *.jpg *.jpeg);;All File (*.*)"); // filter files by
+                                                      // extension
   auto imageItemModel = dynamic_cast<ImageItemModel *>(model());
   for (const auto &file : fileNames) {
     imageItemModel->addItem(file);
   }
 }
 
-}  // namespace ImageStitch
+} // namespace ImageStitch

@@ -6,6 +6,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QWidget>
+#include <QSplitter>
 #include <future>
 
 #include "core/imageStitcher/imageStitcher.hpp"
@@ -99,6 +100,7 @@ class ImageStitcherView : public QWidget {
   QPushButton *config_button;
   QPushButton *next_result;
   QPushButton *pre_result;
+  QPushButton *clean_images;
   ImageStitcher image_stitcher;
   QStatusBar *statusbar;
   std::future<std::vector<ImagePtr>> task;
