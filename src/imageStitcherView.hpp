@@ -5,8 +5,8 @@
 #include <QFormLayout>
 #include <QPushButton>
 #include <QScrollArea>
-#include <QWidget>
 #include <QSplitter>
+#include <QWidget>
 #include <future>
 
 #include "core/imageStitcher/imageStitcher.hpp"
@@ -47,12 +47,43 @@ class ConfigDialog : public QDialog {
   QPushButton *cancel_button;
 };
 
+class MidDataView : public QWidget {
+ public:
+  MidDataView(ImageStitcher *image_stitcher, QWidget *parent = nullptr);
+  void SetupUi();
+  QImage GetImage(const int index);
+  QImage GetFeaturesImage(const int index);
+  QImage GetMatchesImage(const int index1, const int index2);
+  QImage GetWarpImage(const int index1, const int index2);
+  QString GetFeaturesText(const int index);
+  QString GetMatchesText(const int index1, const int index2);
+  QString GetCameraParamsText(const int index);
+  CameraParams GetCameraParams(const int index);
+  std::vector<QImage> GetCompensatorImage(const int index);
+  QImage GetSeamMaskImage(const int index);
+
+ private:
+  ImageStitcher *image_stitcher;
+  QLabel *label;
+  std::vector<QImage> images;
+  std::vector<QImage> features_images;
+  std::vector<std::vector<QImage>> matches_images;
+  std::vector<std::vector<QImage>> compensator_images;
+  std::vector<QImage> seam_mask_images;
+  std::vector<CameraParams> camera_params;
+  QGridLayout *grid_layout;
+  std::vector<QPushButton *> features_buttons;
+  std::vector<QPushButton *> original_buttons;
+  std::vector<std::vector<QPushButton *>> matches_buttons;
+  std::vector<QPushButton *> compensator_buttons;
+  std::vector<QPushButton *> seam_mask_buttons;
+};
+
 class ImageStitcherView : public QWidget {
   Q_OBJECT
  public:
   ImageStitcherView(QWidget *parent = nullptr);
   void SetupUi(const int width, const int height);
-  void Stitch();
   void CreateFromDirectory(const QString &path);
   void ShowImage(const QPixmap &pixmap);
   void ShowImage(const QImage &image);
@@ -70,6 +101,8 @@ class ImageStitcherView : public QWidget {
   void StitchProgress(const float progress);
 
  public slots:
+  void Stitch(bool checked);
+  void ShowMidData(bool checked);
   void ConfigurationStitcher(QVector<QPair<QString, QVariant>> settings);
   void ShowNextResults();
   void ShowPreResults();
@@ -91,6 +124,10 @@ class ImageStitcherView : public QWidget {
 
     friend class ImageStitcherView;
   } _solts = _Solts(this);
+
+ protected:
+  void StartStitcher();
+  void EndStitcher(int result);
 
  private:
   ImageItemModel *m_model;

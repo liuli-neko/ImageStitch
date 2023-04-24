@@ -234,9 +234,9 @@ void ImageBox::setupUi(const int width, const int height) {
   setIconSize(QSize(kDefaultIconWidth, kDefaultIconHeight));
   setLayoutDirection(Qt::LayoutDirectionAuto);
   setContextMenuPolicy(Qt::CustomContextMenu);
-  setDragDropMode(QListView::DragDrop);
+  setDragDropMode(QListView::DragDropMode::DropOnly);
   setAcceptDrops(true);
-  setDragDropOverwriteMode(true);
+  // setDragDropOverwriteMode(true);
   _menu = new QMenu(this);
   _menu_add = _menu->addAction(tr("添加"));
   _draging_index = -1;
@@ -253,22 +253,12 @@ void ImageBox::dragEnterEvent(QDragEnterEvent *event) {
   } else if (event->mimeData()->hasImage()) {
     event->accept();
   }
+  QWidget::dragEnterEvent(event);
 }
-void ImageBox::startDrag(Qt::DropActions supportedActions) {
-  _draging_index = currentIndex().row();
-  QListView::startDrag(supportedActions);
-  qDebug() << "ImageBox::startDrag"
-           << indexAt(mapFromGlobal(QCursor::pos())).row();
-  if (currentIndex().isValid() &&
-      !(_draging_index == 0 &&
-        indexAt(mapFromGlobal(QCursor::pos())).row() == 0)) {
-    model()->removeRow(currentIndex().row());
-  } else if (_draging_index >= 0 && _draging_index + 1 < model()->rowCount()) {
-    model()->removeRow(_draging_index + 1);
-  }
-  _draging_index = -1;
+
+void ImageBox::dragMoveEvent(QDragMoveEvent *event) {
+  QWidget::dragMoveEvent(event);
 }
-void ImageBox::dragMoveEvent(QDragMoveEvent *event) {}
 void ImageBox::dropEvent(QDropEvent *event) {
   qDebug() << "ImageBox::dropEvent";
   auto index = indexAt(event->pos()).row();
@@ -323,6 +313,9 @@ void ImageBox::handleDoubleClick(const QModelIndex &_index) {
   auto data = dynamic_cast<ImageItemModel *>(model())->index2Item(_index);
   auto pixmap = data[Qt::DecorationRole];
   CustomizeTitleWidget *widget = new CustomizeTitleWidget();
+  auto window_flags = widget->windowFlags();
+  widget->setParent(this);
+  widget->setWindowFlags(window_flags);
   ImageView *imageView = new ImageView(pixmap.value<QPixmap>());
   widget->setCentralWidget(imageView);
   widget->setWindowTitle(

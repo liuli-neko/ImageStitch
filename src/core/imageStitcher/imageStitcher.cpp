@@ -3,6 +3,7 @@
 #include <exif.h>
 #include <glog/logging.h>
 #include <math.h>
+#include <omp.h>
 
 #include <fstream>
 #include <functional>
@@ -11,6 +12,8 @@
 #include <sstream>
 
 namespace ImageStitch {
+
+const double PI = acos(-1);
 
 namespace {
 class CallAbleBase {
@@ -43,11 +46,7 @@ static std::shared_ptr<CallAbleBase> CreateCallAble(
     std::function<ResultT(Args...)> func) {
   return std::shared_ptr<CallAbleBase>(new CallAble<ResultT, Args...>(func));
 }
-std::string GetDots() {
-  static std::string dots[] = {".", "..", "...", "....", "....."};
-  static int i = 0;
-  return dots[i++ % 5];
-}
+std::string GetDots() { return "..."; }
 static std::map<std::string, std::shared_ptr<CallAbleBase>> ALL_CONFIGS;
 static std::vector<ConfigItem> CONFIG_TABLE;
 
@@ -65,17 +64,6 @@ class EstimatorListener : public cv::detail::Estimator {
     }
     bool result = (*_estimator)(features, pairwise_matches, cameras);
     LOG(INFO) << "Estimate finished" << std::endl;
-    // for (int i = 0; i < cameras.size(); ++i) {
-    //   LOG(INFO) << "camera id: " << features[i].img_idx;
-    //   LOG(INFO) << "E : \n"
-    //             << cameras[i].focal << ", " << 0 << ", " << cameras[i].ppx
-    //             << "\n"
-    //             << "0"
-    //             << ", " << cameras[i].focal << ", " << cameras[i].ppy << "\n"
-    //             << 0 << ", " << 0 << ", " << 1;
-    //   LOG(INFO) << "R : \n" << cameras[i].R;
-    //   LOG(INFO) << "T : \n" << cameras[i].t;
-    // }
     return result;
   }
 
@@ -93,18 +81,30 @@ class FeaturesMatcherListener : public cv::detail::FeaturesMatcher {
         cv::detail::FeaturesMatcher(features_matcher->isThreadSafe()) {}
   void match(const ImageFeatures &features1, const ImageFeatures &features2,
              MatchesInfo &matches_info) {
-    // if (_stitcher != nullptr) {
-    //   _stitcher->signal_run_message.notify("Features matching" + GetDots(),
-    //   -1);
-    // }
     (*_features_matcher)(features1, features2, matches_info);
-    // LOG(INFO) << "Features Matched";
-    // LOG(INFO) << "MatchesInfo : \n"
-    //           << "src_img : " << matches_info.src_img_idx
-    //           << " - dst_img : " << matches_info.dst_img_idx
-    //           << "\nnum_inliers : " << matches_info.num_inliers
-    //           << "\nconfidence : " << matches_info.confidence
-    //           << "\nH : " << matches_info.H;
+    if (_stitcher != nullptr) {
+      if (_stitcher->ImagesFeatures().size() < features1.img_idx + 1) {
+        _stitcher->ImagesFeatures().resize(features1.img_idx + 1);
+      }
+      if (_stitcher->ImagesFeatures().size() < features2.img_idx + 1) {
+        _stitcher->ImagesFeatures().resize(features2.img_idx + 1);
+      }
+      _stitcher->ImagesFeatures()[features1.img_idx] = features1;
+      _stitcher->ImagesFeatures()[features2.img_idx] = features2;
+      matches_info.src_img_idx = features1.img_idx;
+      matches_info.dst_img_idx = features2.img_idx;
+      _stitcher->FeaturesMatches()[std::make_pair(
+          features1.img_idx, features2.img_idx)] = matches_info;
+    }
+    LOG(INFO) << "Features Matched";
+    LOG(INFO) << "features1 : " << features1.img_idx;
+    LOG(INFO) << "features2 : " << features2.img_idx;
+    LOG(INFO) << "MatchesInfo : \n"
+              << "src_img : " << matches_info.src_img_idx
+              << " - dst_img : " << matches_info.dst_img_idx
+              << "\nnum_inliers : " << matches_info.num_inliers
+              << "\nconfidence : " << matches_info.confidence
+              << "\nH : " << matches_info.H;
   }
   void collectGarbage() { _features_matcher->collectGarbage(); }
 
@@ -188,6 +188,9 @@ class BundleAdjusterListener : public cv::detail::BundleAdjusterBase {
       _stitcher->signal_run_message.notify("BundleAdjusting" + GetDots(), -1);
     }
     bool result = (*_bundle_adjuster)(features, pairwise_matches, cameras);
+    if (_stitcher != nullptr) {
+      _stitcher->FinalCameraParams() = cameras;
+    }
     LOG(INFO) << "Bundle adjuster finished";
     return result;
   }
@@ -241,7 +244,14 @@ class SeamFinderListener : public cv::detail::SeamFinder {
       _stitcher->signal_run_message.notify("Seam finding" + GetDots(), -1);
     }
     _seam_finder->find(src, corners, masks);
-    LOG(INFO) << "Seam finder finished" << std::endl;
+    if (_stitcher != nullptr) {
+      for (int i = 0; i < masks.size(); ++i) {
+        cv::Mat img, dst;
+        src[i].getMat(cv::ACCESS_READ).convertTo(img, CV_8UC3);
+        img.copyTo(dst, masks[i]);
+        _stitcher->SeamMasks().push_back(dst);
+      }
+    }
   }
 
  private:
@@ -258,17 +268,20 @@ class ExporterListener : public cv::detail::ExposureCompensator {
   void feed(const std::vector<cv::Point> &corners,
             const std::vector<cv::UMat> &images,
             const std::vector<std::pair<cv::UMat, uchar>> &masks) override {
+    LOG(INFO) << "Exporter compensator feed images" << std::endl;
+    if (_stitcher != nullptr) {
+      _stitcher->CompensatorImages().resize(images.size());
+    }
     _exporter_compensator->feed(corners, images, masks);
   }
   void apply(int index, cv::Point corner, cv::InputOutputArray image,
              cv::InputArray mask) override {
-    // if (_stitcher != nullptr) {
-    //   _stitcher->signal_run_message.notify("Exporter Compensating" +
-    //   GetDots(),
-    //                                        -1);
-    // }
     _exporter_compensator->apply(index, corner, image, mask);
-    LOG(INFO) << "Exporter Compensator finished";
+    if (_stitcher != nullptr) {
+      _stitcher->CompensatorImages().at(index).push_back(
+          image.getMat().clone());
+    }
+    LOG(INFO) << "Exporter compensator finished : " << index;
   }
   void getMatGains(std::vector<cv::Mat> &mat) {
     _exporter_compensator->getMatGains(mat);
@@ -314,8 +327,6 @@ class FeatureDetectorListener : public cv::FeatureDetector {
     }
     _feature_detector->compute(image, keypoints, descriptors);
     LOG(INFO) << "Feature detector computed";
-    // LOG(INFO) << "detector keypoints: " << keypoints.size();
-    // LOG(INFO) << "detector descriptors: " << descriptors.size();
   }
   void compute(cv::InputArrayOfArrays images,
                std::vector<std::vector<KeyPoint>> &keypoints,
@@ -326,12 +337,6 @@ class FeatureDetectorListener : public cv::FeatureDetector {
     }
     _feature_detector->compute(images, keypoints, descriptors);
     LOG(INFO) << "Feature detector computed";
-    // LOG(INFO) << "detector keypoints: " << keypoints.size();
-    // for_each(keypoints.begin(), keypoints.end(),
-    //          [](const std::vector<KeyPoint> &k) {
-    //            LOG(INFO) << "keypoint " << k.size();
-    //          });
-    // LOG(INFO) << "detector descriptors: " << descriptors.size();
   }
   void detectAndCompute(cv::InputArray image, cv::InputArray mask,
                         std::vector<KeyPoint> &keypoints,
@@ -343,9 +348,9 @@ class FeatureDetectorListener : public cv::FeatureDetector {
     }
     _feature_detector->detectAndCompute(image, mask, keypoints, descriptors,
                                         useProvidedKeypoints);
-    // LOG(INFO) << "Feature detector detected and computed";
-    // LOG(INFO) << "detector keypoints: " << keypoints.size();
-    // LOG(INFO) << "detector descriptors: " << descriptors.size();
+    if (_stitcher != nullptr) {
+      image.getMatVector(_stitcher->FinalStitchImages());
+    }
   }
 
  private:
@@ -1207,13 +1212,24 @@ ImageStitcher::ImageStitcher() {
 
 auto ImageStitcher::Clean() -> bool {
   _images.clear();
+  _final_images.clear();
+  _compensator_images.clear();
+  _seam_masks.clear();
   _images_features.clear();
+  _features_matches.clear();
+  _final_camera_params.clear();
+  _image_exifs.clear();
   _pairwise_matches.clear();
   _camera_params.clear();
+  _regist_scales.clear();
+  _comp.clear();
+  _cv_stitcher.release();
+
   return true;
 }
 
 auto ImageStitcher::SetImages(std::vector<ImagePtr> images) -> bool {
+  _images.clear();
   _images = images;
   return true;
 }
@@ -1221,48 +1237,189 @@ auto ImageStitcher::SetImages(std::vector<ImagePtr> images) -> bool {
 auto ImageStitcher::SetImages(std::vector<std::string> image_files) -> bool {
   _images.resize(image_files.size());
   _image_exifs.resize(image_files.size());
+#pragma omp parallel for
   for (int i = 0; i < image_files.size(); ++i) {
-    if (!std::filesystem::exists(image_files[i])) {
-      continue;
-    }
     std::ifstream file;
     file.open(image_files[i], std::ios::binary);
     std::vector<uchar> buffer((std::istreambuf_iterator<char>(file)),
                               std::istreambuf_iterator<char>());
     _images[i] = new Image(cv::imdecode(buffer, cv::IMREAD_COLOR));
-    easyexif::EXIFInfo result;
-    result.parseFrom(buffer.data(), buffer.size());
-    ImageExif image_exif;
-    image_exif.camera_model = result.Model;
-    image_exif.exposure_bias = result.ExposureBiasValue;
-    image_exif.exposure_time = result.ExposureTime;
-    image_exif.f_stop = result.FNumber;
-    image_exif.flash_used = result.Flash;
-    image_exif.focal_length = result.FocalLength;
-    image_exif.focal_length_35mm = result.FocalLengthIn35mm;
-    image_exif.gps_altitude = result.GeoLocation.Altitude;
-    image_exif.gps_latitude = result.GeoLocation.Latitude;
-    image_exif.gps_longitude = result.GeoLocation.Longitude;
-    image_exif.image_height = result.ImageHeight;
-    image_exif.image_width = result.ImageWidth;
-    image_exif.image_orientation = result.Orientation;
-    image_exif.iso_speed = result.ISOSpeedRatings;
-    image_exif.original_date_time = result.DateTimeOriginal;
-    _image_exifs[i] = image_exif;
+    if (kUseGps) {
+      easyexif::EXIFInfo result;
+      result.parseFrom(buffer.data(), buffer.size());
+      ImageExif image_exif;
+      image_exif.camera_model = result.Model;
+      image_exif.exposure_bias = result.ExposureBiasValue;
+      image_exif.exposure_time = result.ExposureTime;
+      image_exif.f_stop = result.FNumber;
+      image_exif.flash_used = result.Flash;
+      image_exif.focal_length = result.FocalLength;
+      image_exif.focal_length_35mm = result.FocalLengthIn35mm;
+      image_exif.gps_altitude = result.GeoLocation.Altitude;
+      image_exif.gps_latitude = result.GeoLocation.Latitude;
+      image_exif.gps_longitude = result.GeoLocation.Longitude;
+      image_exif.image_height = result.ImageHeight;
+      image_exif.image_width = result.ImageWidth;
+      image_exif.image_orientation = result.Orientation;
+      image_exif.iso_speed = result.ISOSpeedRatings;
+      image_exif.original_date_time = result.DateTimeOriginal;
+      _image_exifs[i] = image_exif;
+    }
   }
   return true;
+}
+
+double ImageStitcher::Distance(double lat1, double lon1, double lat2,
+                               double lon2) {
+  double R = 6371004;  // m
+  double dLat = (lat2 - lat1) * PI / 180;
+  double dLon = (lon2 - lon1) * PI / 180;
+  lat1 = lat1 * PI / 180;
+  lat2 = lat2 * PI / 180;
+
+  double a = sin(dLat / 2) * sin(dLat / 2) +
+             sin(dLon / 2) * sin(dLon / 2) * cos(lat1) * cos(lat2);
+  double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+  double d = R * c;
+  return d;
+}
+
+const Image ImageStitcher::WarperImageByCameraParams(const int index1,
+                                                     const int index2) {
+  if (index1 < 0 || index1 >= _final_images.size()) {
+    return Image();
+  }
+  int i = std::lower_bound(_comp.begin(), _comp.end(), index1) - _comp.begin();
+  if (i >= _comp.size() || _comp[i] != index1) {
+    return Image();
+  }
+  if (index2 < 0 || index2 >= _final_images.size()) {
+    return Image();
+  }
+  int j = std::lower_bound(_comp.begin(), _comp.end(), index2) - _comp.begin();
+  if (j >= _comp.size() || _comp[j] != index2) {
+    return Image();
+  }
+  if (_features_matches.find({index1, index2}) == _features_matches.end()) {
+    return Image();
+  }
+  if (index1 == index2) {
+    return Image();
+  }
+
+  auto w = _cv_stitcher->warper()->create(
+      (_final_camera_params[i].focal + _final_camera_params[j].focal) / 2);
+
+  Mat K;
+  _final_camera_params[i].K().convertTo(K, CV_32F);
+  cv::Rect roi1 =
+      w->warpRoi(_final_images[index1].size(), K, _final_camera_params[i].R);
+  Image img_warped1;
+  w->warp(_final_images[index1], K, _final_camera_params[i].R,
+          _cv_stitcher->interpolationFlags(), cv::BORDER_TRANSPARENT,
+          img_warped1);
+
+  _final_camera_params[j].K().convertTo(K, CV_32F);
+  cv::Rect roi2 =
+      w->warpRoi(_final_images[index2].size(), K, _final_camera_params[j].R);
+  Image img_warped2;
+  w->warp(_final_images[index2], K, _final_camera_params[j].R,
+          _cv_stitcher->interpolationFlags(), cv::BORDER_TRANSPARENT,
+          img_warped2);
+  cv::Point2i c1 = roi1.tl();
+  cv::Point2i c2 = roi2.tl();
+  c2 = c2 - c1;
+  c1 = cv::Point2i(0, 0);
+  int width = (std::max)(c1.x + roi1.size().width, c2.x + roi2.size().width) -
+              (std::min)(c1.x, c2.x);
+  int height =
+      (std::max)(c1.y + roi1.size().height, c2.y + roi2.size().height) -
+      (std::min)(c1.y, c2.y);
+  if (c2.x < 0) {
+    c1.x -= c2.x;
+    c2.x = 0;
+  }
+  if (c2.y < 0) {
+    c1.y -= c2.y;
+    c2.y = 0;
+  }
+
+  Image result(height, width, _final_images[index1].type());
+
+  Image half1(result, {c1, roi1.size()});
+  half1 += 0.5 * img_warped1;
+  Image half2(result, {c2, roi2.size()});
+  half2 += 0.5 * img_warped2;
+
+  return result;
+}
+
+const Image ImageStitcher::WarperImageByHomography(const int index1,
+                                                   const int index2) {
+  if (index1 < 0 || index1 >= _final_images.size()) {
+    return Image();
+  }
+  int i = std::lower_bound(_comp.begin(), _comp.end(), index1) - _comp.begin();
+  if (i >= _comp.size() || _comp[i] != index1) {
+    return Image();
+  }
+  if (index2 < 0 || index2 >= _final_images.size()) {
+    return Image();
+  }
+  int j = std::lower_bound(_comp.begin(), _comp.end(), index2) - _comp.begin();
+  if (j >= _comp.size() || _comp[j] != index2) {
+    return Image();
+  }
+  if (_features_matches.find({index1, index2}) == _features_matches.end()) {
+    return Image();
+  }
+  if (index1 == index2) {
+    return Image();
+  }
+
+  auto matches = _features_matches[{index1, index2}];
+  Image dst;
+  cv::Mat points =
+      (cv::Mat_<double>(3, 4) << 0, _final_images[index1].cols, 0,
+       _final_images[index1].cols, 0, 0, _final_images[index1].rows,
+       _final_images[index1].rows, 1, 1, 1, 1);
+
+  points = matches.H * points;
+  int x1 = (std::min)({points.at<double>(0, 0), points.at<double>(0, 1),
+                       points.at<double>(0, 2), points.at<double>(0, 3)});
+  int y1 = (std::min)({points.at<double>(1, 0), points.at<double>(1, 1),
+                       points.at<double>(1, 2), points.at<double>(1, 3)});
+  int x2 = (std::max)({points.at<double>(0, 0), points.at<double>(0, 1),
+                       points.at<double>(0, 2), points.at<double>(0, 3)});
+  int y2 = (std::max)({points.at<double>(1, 0), points.at<double>(1, 1),
+                       points.at<double>(1, 2), points.at<double>(1, 3)});
+
+  int width = (std::max)(x2, _final_images[index2].cols) - (std::min)(x1, 0);
+  int height = (std::max)(y2, _final_images[index2].rows) - (std::min)(y1, 0);
+  cv::warpPerspective(_final_images[index1], dst, matches.H,
+                      cv::Size(width, height));
+  Image result(height, width, _final_images[index1].type());
+
+  result += 0.5 * dst;
+  Image half2(result,
+              cv::Rect((std::max)(-x1, 0), (std::max)(-y1, 0),
+                       _final_images[index2].cols, _final_images[index2].rows));
+  half2 += 0.5 * _final_images[index2];
+
+  return result;
 }
 
 auto ImageStitcher::Stitch(std::vector<Image> &images)
     -> std::vector<ImagePtr> {
   std::vector<ImagePtr> results;
   Image result;
-  signal_run_message.notify("开始拼接", -1);
+  signal_run_message("开始拼接", -1);
   auto status = _cv_stitcher->stitch(images, result);
   std::string str;
   if (status == cv::Stitcher::OK) {
     str = "已完成拼接:";
-    for (int i : _cv_stitcher->component()) {
+    _comp = _cv_stitcher->component();
+    for (int i : _comp) {
       if (_divide_images == 1 || _divide_images == 2) {
         str +=
             std::to_string(i / 3 + 1) + "-" + std::to_string(i % 3 + 1) + ", ";
@@ -1271,251 +1428,139 @@ auto ImageStitcher::Stitch(std::vector<Image> &images)
       }
     }
     results.push_back(new Image(result));
-    signal_run_message.notify(str, -1);
+    signal_run_message(str, -1);
   } else {
-    signal_run_message.notify("拼接失败,错误代码: " + std::to_string(status),
-                              -1);
+    signal_run_message("拼接失败,错误代码: " + std::to_string(status), -1);
   }
-  signal_result.notify(results);
-  signal_run_progress.notify(1);
   return results;
 }
 
 auto ImageStitcher::IncrementalStitch(std::vector<Image> &images)
     -> std::vector<ImagePtr> {
   signal_run_message.notify("开始拼接", -1);
-  _images_features.resize(images.size());
-  _pairwise_matches.resize(images.size() - 1);
+  std::vector<ImagePtr> results;
+  std::vector<int> indices;
+  indices.push_back(0);
+  std::vector<ImageFeatures> features(images.size());
+  std::map<std::pair<int, int>, MatchesInfo> matches;
   _camera_params.resize(images.size());
-  _images_features[0] = Features(images[0]);
-  _images_features[0].img_idx = 0;
+  _camera_params[0].resize(2);
+  _comp.push_back(0);
   for (int i = 1; i < images.size(); ++i) {
-    signal_run_message("Detect features " + std::to_string(i) + "/" +
-                           std::to_string(images.size() - 1),
-                       -1);
-    _images_features[i].img_idx = i;
-    _images_features[i] = Features(images[i]);
-    signal_run_message("matching features " + std::to_string(i) + "/" +
-                           std::to_string(images.size() - 1),
-                       -1);
-    _pairwise_matches[i - 1] =
-        Matcher(_images_features[i - 1], _images_features[i]);
-    LOG(INFO) << "pairwise_matches size : " << _pairwise_matches[i - 1].size();
+    _comp.push_back(i);
     signal_run_message("estimate camera params " + std::to_string(i) + "/" +
                            std::to_string(images.size() - 1),
                        -1);
-    _camera_params[i] =
-        EstimateCameraParams({_images_features[i - 1], _images_features[i]},
-                             _pairwise_matches[i - 1]);
-
-    signal_run_message("bundle adjuster " + std::to_string(i) + "/" +
-                           std::to_string(images.size() - 1),
-                       -1);
-    _cv_stitcher->bundleAdjuster()->setConfThresh(
-        _cv_stitcher->panoConfidenceThresh());
-    if (!(*_cv_stitcher->bundleAdjuster())(
-            {_images_features[i - 1], _images_features[i]},
-            _pairwise_matches[i - 1], _camera_params[i])) {
-      LOG(ERROR) << "Adjuster failed";
+    auto status = _cv_stitcher->estimateTransform(
+        std::vector<Image>{images[i - 1], images[i]});
+    if (i == images.size() - 1) {
+      features[i] = _images_features[1];
+      features[i].img_idx = i;
     }
-    LOG(INFO) << "_camera_params size : " << _camera_params[i].size();
-    LOG(INFO) << i << " - " << i + 1 << "\nE:\n"
-              << _camera_params[i][0].R << "\n------------------------\n"
-              << _camera_params[i][1].R;
-    LOG(INFO) << "t\n"
-              << _camera_params[i][0].t << "\n------------------------\n"
-              << _camera_params[i][1].t;
-    LOG(INFO) << "f : " << _camera_params[i][0].focal
-              << "\nf : " << _camera_params[i][1].focal;
-    LOG(INFO) << "K:\n"
-              << _camera_params[i][0].K() << "\n-------------------------\n"
-              << _camera_params[i][1].K();
-  }
+    features[i - 1] = _images_features[0];
+    features[i - 1].img_idx = i - 1;
 
-  std::vector<double> focals;
-  for (size_t i = 0; i < _camera_params.size(); ++i) {
-    focals.push_back(_camera_params[i][0].focal);
-  }
-  std::sort(focals.begin(), focals.end());
+    matches[{i - 1, i}] = _features_matches[{0, 1}];
+    matches[{i - 1, i}].src_img_idx = i - 1;
+    matches[{i - 1, i}].dst_img_idx = i;
+    matches[{i, i - 1}] = _features_matches[{1, 0}];
+    matches[{i, i - 1}].src_img_idx = i;
+    matches[{i, i - 1}].dst_img_idx = i - 1;
+    LOG(INFO) << "Features " << features[i - 1].img_idx;
 
-  float warped_image_scale_ = 0;
-  if (focals.size() % 2 == 1) {
-    warped_image_scale_ = static_cast<float>(focals[focals.size() / 2]);
-  } else {
-    warped_image_scale_ = static_cast<float>(focals[focals.size() / 2 - 1] +
-                                             focals[focals.size() / 2]) *
-                          0.5f;
-  }
-
-  float seam_scale = 0;
-  seam_scale = (std::min)(1.0, std::sqrt(_cv_stitcher->seamEstimationResol() *
-                                         1e6 / images[0].size().area()));
-  std::vector<cv::UMat> seam_est_imgs;
-  cv::UMat img;
-  seam_est_imgs.resize(images.size());
-
-  for (size_t i = 0; i < images.size(); ++i) {
-    resize(images[i], img, cv::Size(), seam_scale, seam_scale,
-           cv::INTER_LINEAR_EXACT);
-    seam_est_imgs[i] = img.clone();
-  }
-
-  std::vector<cv::Point> corners(images.size());
-  std::vector<cv::UMat> masks_warped(images.size());
-  std::vector<cv::UMat> images_warped(images.size());
-  std::vector<cv::Size> sizes(images.size());
-  std::vector<cv::UMat> masks(images.size());
-
-  // Prepare image masks
-  for (size_t i = 0; i < images.size(); ++i) {
-    masks[i].create(seam_est_imgs[i].size(), CV_8U);
-    masks[i].setTo(cv::Scalar::all(255));
-  }
-
-  cv::UMat pano;
-
-  // Warp images and their masks
-  cv::Ptr<cv::detail::RotationWarper> w =
-      _cv_stitcher->warper()->create(float(warped_image_scale_));
-
-  std::vector<CameraParams> camera_params;
-  for (size_t i = 0; i < images.size(); ++i) {
-    if (i == 0) {
-      cv::Mat R_inv;
-      cv::invert(_camera_params[i][0].R, R_inv);
-      camera_params[i] = _camera_params[i][0];
-      camera_params[i].R = _camera_params[i][1].R * R_inv;
+    if (status != cv::Stitcher::OK) {
+      signal_run_message("参数估计失败，" + std::to_string(status), -1);
+      indices.push_back(i);
+      _camera_params[i].resize(2);
     } else {
+      _camera_params[i] = _cv_stitcher->cameras();
+    }
+  }
+  _images_features = features;
+  _features_matches = matches;
+  FinalCameraParams().resize(images.size());
+  indices.push_back(images.size());
+  signal_run_message("warpering ...", -1);
+  for (int i = 1; i < indices.size(); ++i) {
+    if (indices[i] - indices[i - 1] <= 1) {
+      results.push_back(new Image(images[indices[i - 1]]));
+    } else {
+      std::vector<CameraParams> camera_params;
+      camera_params.resize(indices[i] - indices[i - 1]);
       cv::Mat R_inv;
-      cv::invert(_camera_params[i][0].R, R_inv);
-      camera_params[i] = _camera_params[i][0];
-      camera_params[i].R =
-          _camera_params[i][1].R * R_inv * camera_params[i - 1].R;
-    }
-    cv::Mat_<float> K;
-    _camera_params[i][1].K().convertTo(K, CV_32F);
-    K(0, 0) *= (float)1;
-    K(0, 2) *= (float)1;
-    K(1, 1) *= (float)1;
-    K(1, 2) *= (float)1;
-
-    corners[i] = w->warp(seam_est_imgs[i], K, camera_params[i].R,
-                         _cv_stitcher->interpolationFlags(), cv::BORDER_REFLECT,
-                         images_warped[i]);
-    sizes[i] = images_warped[i].size();
-
-    w->warp(masks[i], K, _camera_params[i][1].R, cv::INTER_NEAREST,
-            cv::BORDER_CONSTANT, masks_warped[i]);
-  }
-
-  _cv_stitcher->exposureCompensator()->feed(corners, images_warped,
-                                            masks_warped);
-  for (size_t i = 0; i < images.size(); ++i) {
-    _cv_stitcher->exposureCompensator()->apply(
-        int(i), corners[i], images_warped[i], masks_warped[i]);
-  }
-
-  // Find seams
-  std::vector<cv::UMat> images_warped_f(images.size());
-  for (size_t i = 0; i < images.size(); ++i)
-    images_warped[i].convertTo(images_warped_f[i], CV_32F);
-  _cv_stitcher->seamFinder()->find(images_warped_f, corners, masks_warped);
-
-  // Release unused memory
-  seam_est_imgs.clear();
-  images_warped.clear();
-  images_warped_f.clear();
-  masks.clear();
-  img.release();
-
-  cv::UMat img_warped, img_warped_s;
-  cv::UMat dilated_mask, seam_mask, mask, mask_warped;
-
-  cv::UMat full_img;
-  float compose_scale = 0;
-  for (size_t img_idx = 0; img_idx < images.size(); ++img_idx) {
-    full_img = images[img_idx].getUMat(cv::ACCESS_MASK);
-
-    if (_cv_stitcher->compositingResol() > 0) {
-      compose_scale =
-          (std::min)(1.0, std::sqrt(_cv_stitcher->compositingResol() * 1e6 /
-                                    full_img.size().area()));
-    }
-    w = _cv_stitcher->warper()->create(compose_scale);
-
-    std::vector<CameraParams> cameras_scaled(camera_params);
-
-    // Update corners and sizes
-    for (size_t i = 0; i < images.size(); ++i) {
-      // Update intrinsics
-      cameras_scaled[i].ppx *= compose_scale;
-      cameras_scaled[i].ppy *= compose_scale;
-      cameras_scaled[i].focal *= compose_scale;
-
-      // Update corner and size
-      cv::Size sz = images[i].size();
-      if (std::abs(compose_scale - 1) > 1e-1) {
-        sz.width = cvRound(images[i].size().width * compose_scale);
-        sz.height = cvRound(images[i].size().height * compose_scale);
+      for (size_t j = 0; j < camera_params.size(); ++j) {
+        if (j == indices[i - 1]) {
+          camera_params[j] = _camera_params[j + indices[i - 1]][1];
+          camera_params[j].R = cv::Mat::eye(cv::Size(3, 3), CV_32F);
+        } else {
+          camera_params.at(j) = _camera_params.at(j + indices.at(i - 1)).at(1);
+          cv::Mat R_j, R_0, R_1;
+          camera_params[j - 1].R.convertTo(R_j, CV_32F);
+          _camera_params[j + indices[i - 1]][0].R.convertTo(R_0, CV_32F);
+          _camera_params[j + indices.at(i - 1)][1].R.convertTo(R_1, CV_32F);
+          camera_params[j].R = R_j * R_0.inv() * R_1;
+          std::cout << camera_params[j].t << std::endl;
+        }
+        FinalCameraParams()[j + indices[i - 1]] = camera_params[j];
       }
-
-      cv::Mat K;
-      cameras_scaled[i].K().convertTo(K, CV_32F);
-      cv::Rect roi = w->warpRoi(sz, K, cameras_scaled[i].R);
-      corners[i] = roi.tl();
-      sizes[i] = roi.size();
+      std::vector<Image> current_images;
+      for (int j = indices[i - 1]; j < indices[i]; ++j) {
+        current_images.push_back(images[j]);
+      }
+      auto status = _cv_stitcher->setTransform(current_images, camera_params);
+      if (status == cv::Stitcher::OK) {
+        Image pano;
+        status = _cv_stitcher->composePanorama(pano);
+        if (status == cv::Stitcher::OK) {
+          results.push_back(new Image(pano));
+        }
+      }
     }
-    if (std::abs(compose_scale - 1) > 1e-1) {
-      cv::resize(full_img, img, cv::Size(), compose_scale, compose_scale,
-                 cv::INTER_LINEAR_EXACT);
-    } else {
-      img = full_img;
-    }
-
-    full_img.release();
-
-    cv::Size img_size = img.size();
-    cv::Mat K;
-    cameras_scaled[img_idx].K().convertTo(K, CV_32F);
-    w->warp(img, K, camera_params[img_idx].R,
-            _cv_stitcher->interpolationFlags(), cv::BORDER_REFLECT, img_warped);
-
-    mask.create(img_size, CV_8U);
-    mask.setTo(cv::Scalar::all(255));
-    w->warp(mask, K, camera_params[img_idx].R, cv::INTER_NEAREST,
-            cv::BORDER_CONSTANT, mask_warped);
-
-    _cv_stitcher->exposureCompensator()->apply((int)img_idx, corners[img_idx],
-                                               img_warped, mask_warped);
-
-    img_warped.convertTo(img_warped_s, CV_16S);
-    img_warped.release();
-    img.release();
-    mask.release();
-
-    // Make sure seam mask has proper size
-    cv::dilate(masks_warped[img_idx], dilated_mask, cv::Mat());
-    cv::resize(dilated_mask, seam_mask, mask_warped.size(), 0, 0,
-               cv::INTER_LINEAR_EXACT);
-
-    cv::bitwise_and(seam_mask, mask_warped, mask_warped);
-
-    _cv_stitcher->blender()->prepare(corners, sizes);
-    _cv_stitcher->blender()->feed(img_warped_s, mask_warped, corners[img_idx]);
-    cv::UMat result, result_mask;
-    _cv_stitcher->blender()->blend(result, result_mask);
-    result.convertTo(pano, CV_8U);
-
-    auto results = std::vector<ImagePtr>{
-        new Image(pano.getMat(cv::AccessFlag::ACCESS_RW))};
-    signal_result.notify(results);
-    signal_run_progress.notify(1);
-
-    return results;
   }
-  signal_result.notify(std::vector<ImagePtr>());
-  signal_run_progress.notify(1);
-  return std::vector<ImagePtr>();
+  signal_run_message("拼接完成", -1);
+  return results;
+}
+
+auto ImageStitcher::MergeStitch(std::vector<Image> &images, const int s,
+                                const int e) -> std::vector<ImagePtr> {
+  if (e - s <= 1) {
+    if (e == s) {
+      return std::vector<ImagePtr>();
+    }
+    return std::vector<ImagePtr>{new Image(images[s])};
+  }
+  if (e - s <= 4) {
+    Image pano;
+    auto status = _cv_stitcher->stitch(
+        std::vector<Image>(images.begin() + s, images.begin() + e), pano);
+    if (status == cv::Stitcher::OK) {
+      return std::vector<ImagePtr>{new Image(pano)};
+    }
+  }
+  int mid = (s + e) / 2;
+
+  std::vector<ImagePtr> pano1 = MergeStitch(images, s, mid);
+  std::vector<ImagePtr> pano2 = MergeStitch(images, mid, e);
+
+  Image pano;
+  auto status = _cv_stitcher->stitch(
+      std::vector<Image>{*pano1.back(), *pano2.front()}, pano);
+  std::vector<ImagePtr> results;
+  if (pano1.size() > 1) {
+    std::for_each(pano1.begin(), pano1.end() - 1,
+                  [&results](ImagePtr img) { results.push_back(img); });
+  }
+  if (status == cv::Stitcher::OK) {
+    results.push_back(new Image(pano));
+  } else {
+    results.push_back(pano1.back());
+    results.push_back(pano2.front());
+  }
+  if (pano2.size() > 1) {
+    std::for_each(pano2.begin() + 1, pano2.end(),
+                  [&results](ImagePtr img) { results.push_back(img); });
+  }
+  return results;
 }
 
 auto ImageStitcher::Stitch() -> std::vector<ImagePtr> {
@@ -1523,14 +1568,16 @@ auto ImageStitcher::Stitch() -> std::vector<ImagePtr> {
     SetParams(Parameters());
   }
   if (_images.size() <= 0) {
-    signal_run_message.notify("请提供图像", -1);
-    signal_result.notify(std::vector<ImagePtr>());
+    signal_run_message("请提供图像", -1);
+    signal_result(std::vector<ImagePtr>());
     return std::vector<ImagePtr>();
   }
-  signal_run_message.notify("预备拼接图像", -1);
+  signal_run_message("预备拼接图像", -1);
   std::vector<Image> images_;
   for (int i = 0; i < _images.size(); ++i) {
-    if (_divide_images == 1) {
+    if (_divide_images == 0 || _mode != ALL) {
+      images_.push_back(*_images[i]);
+    } else if (_divide_images == 1) {
       cv::Rect rect(0, 0, _images[i]->cols, _images[i]->rows / 2);
       images_.push_back((*_images[i])(rect).clone());
       rect.y = _images[i]->rows / 3;
@@ -1545,23 +1592,40 @@ auto ImageStitcher::Stitch() -> std::vector<ImagePtr> {
       rect.x = _images[i]->cols / 2;
       images_.push_back((*_images[i])(rect).clone());
     } else {
-      images_.push_back(_images[i]->clone());
+      images_.push_back(*_images[i]);
     }
   }
-  if (_mode == Mode::ALL) {
-    return Stitch(images_);
-  } else if (_mode == Mode::INCREMENTAL) {
-    return IncrementalStitch(images_);
+  FinalStitchImages().clear();
+  // FinalStitchImages() = images_;
+  _regist_scales.resize(images_.size());
+  FinalStitchImages().resize(images_.size());
+  for (int i = 0; i < images_.size(); ++i) {
+    _regist_scales[i] =
+        (std::min)(1.0, std::sqrt(_cv_stitcher->registrationResol() * 1e6 /
+                                  images_[i].size().area()));
+    resize(images_[i], FinalStitchImages()[i], cv::Size(), _regist_scales[i],
+           _regist_scales[i], cv::INTER_LINEAR_EXACT);
   }
-  signal_run_message("未知拼接模式", 10000);
-  signal_result(std::vector<ImagePtr>());
+  std::vector<ImagePtr> results;
+  if (_mode == Mode::ALL) {
+    results = Stitch(images_);
+    FinalCameraParams() = _cv_stitcher->cameras();
+  } else if (_mode == Mode::INCREMENTAL) {
+    results = IncrementalStitch(images_);
+  } else if (_mode == Mode::MERGE) {
+    results = MergeStitch(images_, 0, images_.size());
+    signal_run_message("拼接完成。", -1);
+  } else {
+    signal_run_message("未知拼接模式", 10000);
+  }
+  signal_result(results);
   signal_run_progress(1);
-  return std::vector<ImagePtr>();
+  return results;
 }
 
 auto ImageStitcher::ImageSize() -> int { return _images.size(); }
 
-auto ImageStitcher::Features(const Image &image) -> ImageFeatures {
+auto ImageStitcher::DetectFeatures(const Image &image) -> ImageFeatures {
   if (!_cv_stitcher.empty()) {
     ImageFeatures image_features;
     KeyPoints keypoints;
@@ -1579,8 +1643,8 @@ auto ImageStitcher::Features(const Image &image) -> ImageFeatures {
   return ImageFeatures();
 }
 
-auto ImageStitcher::Matcher(const ImageFeatures &features1,
-                            const ImageFeatures &features2)
+auto ImageStitcher::MatchesFeatures(const ImageFeatures &features1,
+                                    const ImageFeatures &features2)
     -> std::vector<MatchesInfo> {
   if (!_cv_stitcher.empty()) {
     std::vector<MatchesInfo> matches_info;
@@ -1620,8 +1684,16 @@ Image ImageStitcher::DrawMatches(const Image &image1, const ImageFeatures &f1,
                                  const Image &image2, const ImageFeatures &f2,
                                  MatchesInfo &matches) {
   Image image;
-  cv::drawMatches(image1, f1.keypoints, image2, f2.keypoints,
-                  matches.getMatches(), image);
+  std::vector<cv::DMatch> good_matches;
+  const auto &all_matches = matches.getMatches();
+  const auto &inliers = matches.getInliers();
+  for (int i = 0; i < all_matches.size(); ++i) {
+    if (inliers[i]) {
+      good_matches.push_back(all_matches[i]);
+    }
+  }
+  cv::drawMatches(image1, f1.keypoints, image2, f2.keypoints, good_matches,
+                  image);
   return image;
 }
 

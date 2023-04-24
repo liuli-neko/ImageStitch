@@ -15,7 +15,7 @@ QImage CvMat2QImage(const cv::Mat &cvImage) {
 #ifdef WIN
   auto tmp_path = std::filesystem::temp_directory_path().string();
   std::stringstream tmp_filename;
-  tmp_filename << tmp_path << "/" << std::hex << (rand() % 1000000)
+  tmp_filename << tmp_path << std::hex << (rand() % 1000000)
                << (rand() % 1000000) << ".jpg";
   qDebug() << "temp file : " << tmp_filename.str().c_str();
   cv::imwrite(tmp_filename.str(), cvImage);
@@ -54,15 +54,15 @@ QImage CvMat2QImage(const cv::Mat &cvImage) {
 }
 
 cv::Mat QImage2CvMat(const QImage &image) {
-// #ifdef WIN
-//   auto tmp_path = std::filesystem::temp_directory_path().string();
-//   std::stringstream tmp_filename;
-//   tmp_filename << tmp_path << "/" << std::hex << (rand() % 1000000)
-//                << (rand() % 1000000) << ".jpg";
-//   image.save(tmp_filename.str().c_str());
-//   qDebug() << "temp file : " << tmp_filename.str().c_str();
-//   return cv::imread(tmp_filename.str());
-// #endif
+  // #ifdef WIN
+  //   auto tmp_path = std::filesystem::temp_directory_path().string();
+  //   std::stringstream tmp_filename;
+  //   tmp_filename << tmp_path << "/" << std::hex << (rand() % 1000000)
+  //                << (rand() % 1000000) << ".jpg";
+  //   image.save(tmp_filename.str().c_str());
+  //   qDebug() << "temp file : " << tmp_filename.str().c_str();
+  //   return cv::imread(tmp_filename.str());
+  // #endif
   cv::Mat mat;
   switch (image.format()) {
     case QImage::Format_ARGB32:

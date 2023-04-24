@@ -64,7 +64,6 @@ class ImageBox : public QListView {
   void dragMoveEvent(QDragMoveEvent *event) override;
   void dragEnterEvent(QDragEnterEvent *event) override;
   void dropEvent(QDropEvent *event) override;
-  void startDrag(Qt::DropActions supportedActions) override;
 
  public slots:
   void handleDoubleClick(const QModelIndex &_index);

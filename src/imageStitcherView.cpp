@@ -1,15 +1,26 @@
 #include "imageStitcherView.hpp"
 // #include "core/qtCommon/cv2qt.hpp"
 
+#include <omp.h>
+
+#include <QBoxLayout>
+#include <QButtonGroup>
 #include <QDebug>
 #include <QDir>
 #include <QGridLayout>
+#include <QImage>
 #include <QSpinBox>
 #include <QStatusBar>
+#include <QTextEdit>
+#include <sstream>
+#include <string>
 
 #include "core/qtCommon/cv2qt.hpp"
 
 namespace ImageStitch {
+
+const bool kUseThread = true;
+
 ImageStitcherView::ImageStitcherView(QWidget *parent) : QWidget(parent) {
   SetupUi(420, 290);
 }
@@ -41,9 +52,9 @@ void ImageStitcherView::SetupUi(const int width, const int height) {
   setStyleSheet("QStatusBar {border-top: 1px solid blue;}");
 
   QHBoxLayout *hboxLayout = new QHBoxLayout();
-  hboxLayout->addWidget(pre_result, 0, Qt::AlignCenter);
-  hboxLayout->addWidget(next_result, 0, Qt::AlignCenter);
-  hboxLayout->setSpacing(10);
+  hboxLayout->addWidget(pre_result, 0, Qt::AlignVCenter | Qt::AlignRight);
+  hboxLayout->addWidget(next_result, 0, Qt::AlignVCenter | Qt::AlignLeft);
+  hboxLayout->setSpacing(0);
   hboxLayout->setContentsMargins(10, 0, 10, 0);
 
   QVBoxLayout *gridLayout = new QVBoxLayout();
@@ -77,13 +88,14 @@ void ImageStitcherView::SetupUi(const int width, const int height) {
   image_stitcher.signal_result.connect(&ImageStitcherView::_Solts::Result,
                                        &_solts);
 
-  connect(stitch_button, &QPushButton::clicked, [this](bool checked) {
-    stitch_button->setEnabled(false);
-    Stitch();
-  });
+  connect(stitch_button, &QPushButton::clicked, this,
+          &ImageStitcherView::Stitch);
   connect(config_button, &QPushButton::clicked, [this](bool checker) {
     ConfigDialog *config_dialog = new ConfigDialog;
     CustomizeTitleWidget *config_window = new CustomizeTitleWidget();
+    auto window_flags = config_window->windowFlags();
+    config_window->setParent(this);
+    config_window->setWindowFlags(window_flags);
     config_window->setWindowTitle(tr("配置"));
     config_window->setCentralWidget(config_dialog);
     // config_window->setWindowResizable(false);
@@ -145,11 +157,17 @@ void ImageStitcherView::SetupUi(const int width, const int height) {
   connect(this, &ImageStitch::ImageStitcherView::Message, statusbar,
           &QStatusBar::showMessage);
   connect(clean_images, &QPushButton::clicked, this, [this](bool checked) {
+    stitch_button->setText(tr("拼接"));
+    stitch_button->disconnect();
+		image_stitcher.Clean();
+    connect(stitch_button, &QPushButton::clicked, this,
+            &ImageStitcherView::Stitch);
     clean_images->setEnabled(false);
     _solts.current_index = -1;
     _solts.images.clear();
     pre_result->setVisible(false);
     next_result->setVisible(false);
+    Message("", 1);
     ShowMessage(tr("欢迎使用图像拼接软件（NekoIS）\n") +
                 tr("请拖拽或右键添加图片到待拼接图像列表中\n") +
                 tr("点击拼接可以完成图像拼接\n") +
@@ -184,10 +202,14 @@ void ImageStitcherView::CreateFromDirectory(const QString &path) {
     dir.setFilter(QDir::Files);
     dir.setNameFilters(QStringList{"*.png", "*.jpg", ".jpeg"});
     QFileInfoList list = dir.entryInfoList();
+    std::vector<QPixmap> pixmap(list.size());
+#pragma omp parallel for
     for (int i = 0; i < list.size(); ++i) {
       QFileInfo file_info = list.at(i);
-      std::cout << file_info.filePath().toStdString() << std::endl;
-      m_model->addItem(file_info.filePath());
+      pixmap[i] = QPixmap(file_info.filePath());
+    }
+    for (int i = 0; i < list.size(); ++i) {
+      m_model->addItem(pixmap[i], list[i].filePath());
     }
     Message(tr("文件夹: ") + path + tr(" .中的图片已成功导入"), 10000);
   } else {
@@ -223,25 +245,19 @@ void ImageStitcherView::_Solts::Result(std::vector<ImagePtr> imgs) {
   parent->stitch_button->setEnabled(true);
   LOG(INFO) << "stitcher finished";
   LOG(INFO) << "result size : " << imgs.size();
-  int n = images.size();
   for (auto image : imgs) {
     images.push_back(cv2qt::CvMat2QImage(*image));
   }
   if (images.size() > 0) {
-    parent->ShowImage(images[n]);
-    parent->clean_images->setEnabled(true);
-    current_index = n;
+    parent->ShowImage(images[0]);
+    current_index = 0;
   }
-  if (images.size() > 1) {
-    parent->next_result->setVisible(true);
-    parent->pre_result->setVisible(true);
-  } else {
-    parent->next_result->setVisible(false);
-    parent->pre_result->setVisible(false);
-  }
+  parent->EndStitcher(imgs.size());
 }
 
-void ImageStitcherView::Stitch() {
+void ImageStitcherView::Stitch(bool checked) {
+  StartStitcher();
+
   auto Items = m_model->getItems(0, m_model->rowCount());
   image_stitcher.RemoveAllImages();
   std::vector<std::string> image_files;
@@ -251,8 +267,24 @@ void ImageStitcherView::Stitch() {
     image_files.push_back(file_name.toStdString());
   }
   image_stitcher.SetImages(image_files);
-  task = std::async(std::launch::async,
-                    [this]() { return image_stitcher.Stitch(); });
+  if (kUseThread) {
+    task = std::async(std::launch::async,
+                      [this]() { return image_stitcher.Stitch(); });
+  } else {
+    image_stitcher.Stitch();
+  }
+}
+
+void ImageStitcherView::ShowMidData(bool checked) {
+  CustomizeTitleWidget *main_window = new CustomizeTitleWidget();
+  auto window_flags = main_window->windowFlags();
+  main_window->setParent(this);
+  main_window->setWindowFlags(window_flags);
+  MidDataView *view = new MidDataView(&image_stitcher);
+  main_window->setWindowTitle(tr("中间数据"));
+  main_window->setCentralWidget(view);
+  main_window->setAttribute(Qt::WA_DeleteOnClose);
+  main_window->show();
 }
 
 void ImageStitcherView::ConfigurationStitcher(
@@ -274,12 +306,27 @@ void ImageStitcherView::ConfigurationStitcher(
 }
 
 void ImageStitcherView::paintEvent(QPaintEvent *event) {
-  QPainter painter(this);
-  painter.setPen(QColor("blue"));
-  auto image_rect = result_view_widget->geometry();
-  painter.drawRect(image_rect.x() - 1, image_rect.y() - 1,
-                   image_rect.width() + 1, image_rect.height() + 1);
   QWidget::paintEvent(event);
+}
+
+void ImageStitcherView::StartStitcher() {
+  stitch_button->setEnabled(false);
+  config_button->setEnabled(false);
+}
+void ImageStitcherView::EndStitcher(int result) {
+  config_button->setEnabled(true);
+  stitch_button->setText(tr("更多"));
+  stitch_button->disconnect();
+  connect(stitch_button, &QPushButton::clicked, this,
+          &ImageStitcherView::ShowMidData);
+  clean_images->setEnabled(true);
+  if (result > 1) {
+    next_result->setVisible(true);
+    pre_result->setVisible(true);
+  } else {
+    next_result->setVisible(false);
+    pre_result->setVisible(false);
+  }
 }
 
 ConfigDialog::ConfigDialog(QWidget *parent) : QDialog(parent) {
@@ -447,4 +494,360 @@ void ConfigDialog::AddItem(const QString &title, const int &min_value,
   view->adjustSize();
 }
 
+MidDataView::MidDataView(ImageStitcher *image_stitcher, QWidget *parent)
+    : QWidget(parent), image_stitcher(image_stitcher) {
+  SetupUi();
+}
+void MidDataView::SetupUi() {
+  grid_layout = new QGridLayout();
+  setLayout(grid_layout);
+  int image_length = image_stitcher->FinalStitchImages().size();
+
+  features_buttons.resize(image_length);
+  original_buttons.resize(image_length);
+  matches_buttons.resize(image_length,
+                         std::vector<QPushButton *>(image_length));
+  compensator_buttons.resize(image_length);
+  seam_mask_buttons.resize(image_length);
+
+  label = new QLabel();
+  label->setText("特征图\\原图");
+
+  grid_layout->addWidget(label, 0, 0);
+
+  for (int i = 0; i < image_length; ++i) {
+    original_buttons[i] = new QPushButton();
+    connect(
+        original_buttons[i], &QPushButton::clicked, this,
+        [i, this](bool checked) {
+          CustomizeTitleWidget *main_window = new CustomizeTitleWidget();
+          auto window_flags = main_window->windowFlags();
+          main_window->setParent(this);
+          main_window->setWindowFlags(window_flags);
+          ImageView *image_view = new ImageView();
+          image_view->SetImage(GetImage(i));
+          main_window->setCentralWidget(image_view);
+          main_window->setWindowTitle(tr("原图 - ") + QString::number(i + 1));
+          main_window->setAttribute(Qt::WA_DeleteOnClose, true);
+          main_window->show();
+        });
+    original_buttons[i]->setText("o_" + QString::number(i + 1));
+    grid_layout->addWidget(original_buttons[i], 0, i + 1);
+  }
+  for (int i = 0; i < image_length; ++i) {
+    features_buttons[i] = new QPushButton();
+    connect(features_buttons[i], &QPushButton::clicked, this,
+            [i, this](bool checked) {
+              CustomizeTitleWidget *main_window = new CustomizeTitleWidget();
+              auto window_flags = main_window->windowFlags();
+              main_window->setParent(this);
+              main_window->setWindowFlags(window_flags);
+              ImageView *image_view = new ImageView();
+              QTextEdit *text_edit = new QTextEdit();
+              QTextEdit *text_edit1 = new QTextEdit();
+              QSplitter *splitter = new QSplitter();
+              QSplitter *splitter1 = new QSplitter();
+              splitter->addWidget(image_view);
+              splitter1->setOrientation(Qt::Vertical);
+              splitter1->addWidget(text_edit1);
+              splitter1->addWidget(text_edit);
+              splitter->addWidget(splitter1);
+
+              text_edit1->setText(GetCameraParamsText(i));
+              text_edit->setText(GetFeaturesText(i));
+              text_edit->setReadOnly(true);
+              image_view->SetImage(GetFeaturesImage(i));
+
+              main_window->setCentralWidget(splitter);
+              main_window->setWindowTitle(tr("特征提取图 - ") +
+                                          QString::number(i + 1));
+              main_window->setAttribute(Qt::WA_DeleteOnClose, true);
+              main_window->show();
+            });
+    features_buttons[i]->setText("f_" + QString::number(i + 1));
+    grid_layout->addWidget(features_buttons[i], i + 1, 0);
+  }
+  auto thresh =
+      image_stitcher->GetParams().GetParam("PanoConfidenceThresh", 0.0);
+  for (int i = 0; i < image_length; ++i) {
+    for (int j = 0; j < image_length; ++j) {
+      matches_buttons[i][j] = new QPushButton();
+      connect(matches_buttons[i][j], &QPushButton::clicked, this,
+              [i, j, this](bool checked) {
+                CustomizeTitleWidget *main_window = new CustomizeTitleWidget();
+                auto window_flags = main_window->windowFlags();
+                main_window->setParent(this);
+                main_window->setWindowFlags(window_flags);
+                ImageView *image_view = new ImageView();
+                ImageView *image_view1 = new ImageView();
+                QTextEdit *text_edit = new QTextEdit();
+                QSplitter *splitter = new QSplitter();
+                QSplitter *splitter1 = new QSplitter();
+                splitter1->setOrientation(Qt::Vertical);
+                splitter1->addWidget(image_view);
+                splitter1->addWidget(image_view1);
+                splitter->addWidget(splitter1);
+                splitter->addWidget(text_edit);
+
+                text_edit->setText(GetMatchesText(i, j));
+                text_edit->setReadOnly(true);
+                image_view->SetImage(GetMatchesImage(i, j));
+                image_view1->SetImage(GetWarpImage(i, j));
+
+                main_window->setCentralWidget(splitter);
+
+                main_window->setWindowTitle(tr("匹配图 - ") +
+                                            QString::number(i + 1) + ", " +
+                                            QString::number(j + 1));
+                main_window->setAttribute(Qt::WA_DeleteOnClose, true);
+                main_window->show();
+              });
+      auto matches = image_stitcher->FeaturesMatches()[{i, j}];
+      matches_buttons[i][j]->setText(
+          QString().setNum(matches.confidence, 'f', 6));
+      if (matches.confidence >= thresh) {
+        matches_buttons[i][j]->setAutoFillBackground(true);
+        QPalette pal = matches_buttons[i][j]->palette();
+        pal.setColor(QPalette::ButtonText, QColor(Qt::red));
+        matches_buttons[i][j]->setPalette(pal);
+      }
+      if (i == j) {
+        matches_buttons[i][j]->setEnabled(false);
+      }
+      grid_layout->addWidget(matches_buttons[i][j], i + 1, j + 1);
+    }
+  }
+
+  auto compensator_label = new QLabel();
+  compensator_label->setText("compensator result");
+  grid_layout->addWidget(compensator_label, image_length + 1, 0);
+  compensator_buttons.resize(image_length);
+  for (int i = 0; i < image_length; ++i) {
+    compensator_buttons[i] = new QPushButton();
+    connect(
+        compensator_buttons[i], &QPushButton::clicked, this,
+        [i, this](bool checked) {
+          CustomizeTitleWidget *main_window = new CustomizeTitleWidget();
+          auto window_flags = main_window->windowFlags();
+          main_window->setParent(this);
+          main_window->setWindowFlags(window_flags);
+          ImageView *image_view = new ImageView();
+          ImageView *image_view1 = new ImageView();
+          QSplitter *splitter = new QSplitter();
+
+          splitter->addWidget(image_view);
+          splitter->addWidget(image_view1);
+
+          image_view->SetImage(GetCompensatorImage(i)[0]);
+          image_view1->SetImage(GetCompensatorImage(i)[1]);
+
+          main_window->setCentralWidget(splitter);
+
+          main_window->setWindowTitle(tr("补偿 - ") + QString::number(i + 1));
+          main_window->setAttribute(Qt::WA_DeleteOnClose, true);
+          main_window->show();
+        });
+    compensator_buttons[i]->setText(QString::number(i + 1));
+    grid_layout->addWidget(compensator_buttons[i], image_length + 1, i + 1);
+  }
+
+  auto seam_label = new QLabel();
+  seam_label->setText("seam find result");
+  grid_layout->addWidget(seam_label, image_length * 2 + 1, 0);
+  seam_mask_buttons.resize(image_length);
+  for (int i = 0; i < image_length; ++i) {
+    seam_mask_buttons[i] = new QPushButton();
+    connect(seam_mask_buttons[i], &QPushButton::clicked, this,
+            [i, this](bool checked) {
+              CustomizeTitleWidget *main_window = new CustomizeTitleWidget();
+              auto window_flags = main_window->windowFlags();
+              main_window->setParent(this);
+              main_window->setWindowFlags(window_flags);
+              ImageView *image_view = new ImageView();
+
+              image_view->SetImage(GetSeamMaskImage(i));
+
+              main_window->setCentralWidget(image_view);
+
+              main_window->setWindowTitle(tr("拼接缝裁剪 - ") +
+                                          QString::number(i + 1));
+              main_window->setAttribute(Qt::WA_DeleteOnClose, true);
+              main_window->show();
+            });
+    seam_mask_buttons[i]->setText(QString::number(i + 1));
+    grid_layout->addWidget(seam_mask_buttons[i], image_length * 2 + 1, i + 1);
+  }
+}
+
+QImage MidDataView::GetImage(const int index) {
+  if (images.size() != image_stitcher->FinalStitchImages().size()) {
+    images.resize(image_stitcher->FinalStitchImages().size());
+  }
+  if (index < 0 || index >= images.size()) {
+    return QImage();
+  }
+  if (images[index].isNull()) {
+    images[index] =
+        cv2qt::CvMat2QImage(image_stitcher->FinalStitchImages()[index]);
+  }
+  return images[index];
+}
+QImage MidDataView::GetFeaturesImage(const int index) {
+  if (index >= 0 && index < image_stitcher->ImagesFeatures().size()) {
+    if (features_images.size() != image_stitcher->ImagesFeatures().size()) {
+      features_images.resize(image_stitcher->ImagesFeatures().size());
+    }
+    if (features_images[index].isNull()) {
+      features_images[index] = cv2qt::CvMat2QImage(image_stitcher->DrawKeypoint(
+          image_stitcher->FinalStitchImages()[index],
+          image_stitcher->ImagesFeatures()[index]));
+    }
+    return features_images[index];
+  }
+  return QImage();
+}
+QString MidDataView::GetFeaturesText(const int index) {
+  if (index < 0 || index >= image_stitcher->ImagesFeatures().size()) {
+    return QString();
+  }
+  std::ostringstream text;
+  auto features = image_stitcher->ImagesFeatures()[index];
+  text << "img_idx : " << features.img_idx << std::endl;
+  text << "img_size : " << features.img_size << std::endl;
+  text << "keypoint size : " << features.keypoints.size() << std::endl;
+  text << "keypoints : " << std::endl;
+  for (int i = 0; i < features.keypoints.size(); ++i) {
+    text << features.keypoints[i].pt << std::endl;
+  }
+  text << "description : " << std::endl;
+  text << features.descriptors << std::endl;
+  return QString(text.str().c_str());
+}
+QString MidDataView::GetMatchesText(const int index1, const int index2) {
+  std::ostringstream text;
+  auto matches = image_stitcher->FeaturesMatches()[{index1, index2}];
+  text << "src_idx : " << matches.src_img_idx << std::endl;
+  text << "dst_idx : " << matches.dst_img_idx << std::endl;
+  text << "confidence : " << matches.confidence << std::endl;
+  text << "H : " << std::endl;
+  text << matches.H << std::endl;
+  text << "inlier point size : " << matches.num_inliers << std::endl;
+  for (int i = 0; i < matches.getInliers().size(); ++i) {
+    text << int(matches.getInliers()[i]) << " ";
+  }
+  text << std::endl;
+  text << "DMatches : " << std::endl;
+  for (int i = 0; i < matches.getMatches().size(); ++i) {
+    const auto &dmatch = matches.getMatches()[i];
+    text << dmatch.imgIdx << " " << dmatch.queryIdx << " " << dmatch.trainIdx
+         << " " << dmatch.distance << std::endl;
+  }
+  return QString(text.str().c_str());
+}
+QString MidDataView::GetCameraParamsText(const int index) {
+  if (index < 0 || index >= image_stitcher->FinalStitchImages().size()) {
+    return QString();
+  }
+  std::ostringstream text;
+  auto cameraParams = GetCameraParams(index);
+  text << "camera params : " << std::endl;
+  text << "focal : " << cameraParams.focal << std::endl;
+  text << "aspect : " << cameraParams.aspect << std::endl;
+  text << "ppx : " << cameraParams.ppx << std::endl;
+  text << "ppy : " << cameraParams.ppy << std::endl;
+  text << "R : \n" << cameraParams.R << std::endl;
+  text << "t : \n" << cameraParams.t << std::endl;
+  text << "K : \n" << cameraParams.K() << std::endl;
+  return QString(text.str().c_str());
+}
+CameraParams MidDataView::GetCameraParams(const int index) {
+  if (index < 0 || index >= image_stitcher->FinalStitchImages().size()) {
+    return CameraParams();
+  }
+  if (camera_params.size() != image_stitcher->FinalStitchImages().size()) {
+    camera_params.resize(image_stitcher->FinalStitchImages().size());
+    auto comp = image_stitcher->component();
+    for (int i = 0; i < comp.size(); ++i) {
+      camera_params[comp[i]] = image_stitcher->FinalCameraParams()[i];
+    }
+  }
+  return camera_params[index];
+}
+QImage MidDataView::GetMatchesImage(const int index1, const int index2) {
+  int length = image_stitcher->ImagesFeatures().size();
+  if (index1 < 0 || index1 >= length) {
+    return QImage();
+  }
+  if (index2 < 0 || index2 >= length) {
+    return QImage();
+  }
+  if (matches_images.size() != length) {
+    matches_images.resize(length, std::vector<QImage>(length));
+  }
+  if (matches_images[index1][index2].isNull()) {
+    const auto &image1 = image_stitcher->FinalStitchImages()[index1];
+    const auto &image2 = image_stitcher->FinalStitchImages()[index2];
+    const auto &features1 = image_stitcher->ImagesFeatures()[index1];
+    const auto &features2 = image_stitcher->ImagesFeatures()[index2];
+    auto &matches = image_stitcher->FeaturesMatches()[{index1, index2}];
+    matches_images[index1][index2] =
+        cv2qt::CvMat2QImage(image_stitcher->DrawMatches(
+            image1, features1, image2, features2, matches));
+  }
+  return matches_images[index1][index2];
+}
+QImage MidDataView::GetSeamMaskImage(const int index) {
+  int length = image_stitcher->FinalStitchImages().size();
+  if (index < 0 || index >= length) {
+    return QImage();
+  }
+  if (seam_mask_images.size() != length) {
+    seam_mask_images.resize(length);
+  }
+  if (seam_mask_images[index].isNull()) {
+    auto &comp = image_stitcher->component();
+    int i = std::lower_bound(comp.begin(), comp.end(), index) - comp.begin();
+    if (i < comp.size() && comp[i] == index) {
+      seam_mask_images[index] =
+          cv2qt::CvMat2QImage(image_stitcher->SeamMasks()[i]);
+    } else {
+      return QImage();
+    }
+  }
+  return seam_mask_images[index];
+}
+
+std::vector<QImage> MidDataView::GetCompensatorImage(const int index) {
+  int length = image_stitcher->FinalStitchImages().size();
+  if (index < 0 || index >= length) {
+    return std::vector<QImage>(2);
+  }
+  if (compensator_images.size() != length) {
+    compensator_images.resize(length);
+  }
+  if (compensator_images[index].empty()) {
+    auto &comp = image_stitcher->component();
+    int i = std::lower_bound(comp.begin(), comp.end(), index) - comp.begin();
+    if (i < comp.size() && comp[i] == index) {
+      for (const auto &image : image_stitcher->CompensatorImages()[i]) {
+        compensator_images[index].push_back(cv2qt::CvMat2QImage(image));
+      }
+    } else {
+      return std::vector<QImage>(2);
+    }
+  }
+  return compensator_images[index];
+}
+
+QImage MidDataView::GetWarpImage(const int index1, const int index2) {
+  int length = image_stitcher->ImagesFeatures().size();
+  if (index1 < 0 || index1 >= length) {
+    return QImage();
+  }
+  if (index2 < 0 || index2 >= length) {
+    return QImage();
+  }
+  return cv2qt::CvMat2QImage(
+      image_stitcher->WarperImageByCameraParams(index1, index2));
+}
 }  // namespace ImageStitch

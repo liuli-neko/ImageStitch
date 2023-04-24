@@ -2,11 +2,17 @@
 add_rules("mode.debug", "mode.release", "mode.releasedbg")
 
 add_requires("opencv","qt5base","glog","gtest", "nlohmann_json")
-add_cxxflags("cl::/utf-8")
 set_languages("c++17")
 
 if is_host("windows") then
+    add_cxxflags("cl::/utf-8")
     add_defines("WIN")
+end 
+
+add_cxxflags("cl::/openmp")
+
+if is_mode("mode.debug") then 
+    add_cxxflags("-fsanitize=address")
 end
 
 includes("src/signal")
