@@ -83,6 +83,7 @@ class ImageStitcherView : public QWidget {
   Q_OBJECT
  public:
   ImageStitcherView(QWidget *parent = nullptr);
+  ~ImageStitcherView();
   void SetupUi(const int width, const int height);
   void CreateFromDirectory(const QString &path);
   void ShowImage(const QPixmap &pixmap);
@@ -140,7 +141,7 @@ class ImageStitcherView : public QWidget {
   QPushButton *clean_images;
   ImageStitcher image_stitcher;
   QStatusBar *statusbar;
-  std::future<std::vector<ImagePtr>> task;
+  std::thread task;
 };
 
 }  // namespace ImageStitch

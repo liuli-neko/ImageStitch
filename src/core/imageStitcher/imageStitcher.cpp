@@ -461,58 +461,6 @@ static void init() {
               return new FeatureDetectorListener(
                   cv::Ptr<cv::FeatureDetector>(cv::BRISK::create()), stitcher);
             }))));
-    item.options.push_back("MSER");
-    ALL_CONFIGS.insert(std::make_pair(
-        "featuresFinder.MSER",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::FeatureDetector>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new FeatureDetectorListener(
-                  cv::Ptr<cv::FeatureDetector>(cv::MSER::create()), stitcher);
-            }))));
-    item.options.push_back("FastFeatureDetector");
-    ALL_CONFIGS.insert(std::make_pair(
-        "featuresFinder.FastFeatureDetector",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::FeatureDetector>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new FeatureDetectorListener(
-                  cv::Ptr<cv::FeatureDetector>(
-                      cv::FastFeatureDetector::create()),
-                  stitcher);
-            }))));
-    item.options.push_back("AgastFeatureDetector");
-    ALL_CONFIGS.insert(std::make_pair(
-        "featuresFinder.AgastFeatureDetector",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::FeatureDetector>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new FeatureDetectorListener(
-                  cv::Ptr<cv::FeatureDetector>(
-                      cv::AgastFeatureDetector::create()),
-                  stitcher);
-            }))));
-    item.options.push_back("GFTTDetector");
-    ALL_CONFIGS.insert(std::make_pair(
-        "featuresFinder.GFTTDetector",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::FeatureDetector>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new FeatureDetectorListener(
-                  cv::Ptr<cv::FeatureDetector>(cv::GFTTDetector::create()),
-                  stitcher);
-            }))));
-    item.options.push_back("SimpleBlobDetector");
-    ALL_CONFIGS.insert(std::make_pair(
-        "featuresFinder.SimpleBlobDetector",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::FeatureDetector>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new FeatureDetectorListener(
-                  cv::Ptr<cv::FeatureDetector>(
-                      cv::SimpleBlobDetector::create()),
-                  stitcher);
-            }))));
     item.options.push_back("KAZE");
     ALL_CONFIGS.insert(std::make_pair(
         "featuresFinder.KAZE",
@@ -945,16 +893,6 @@ static void init() {
         std::make_pair("interpolationFlags.INTER_LANCZOS4",
                        CreateCallAble(std::function<cv::InterpolationFlags()>(
                            []() { return cv::INTER_LANCZOS4; }))));
-    item.options.push_back("INTER_LINEAR_EXACT");
-    ALL_CONFIGS.insert(
-        std::make_pair("interpolationFlags.INTER_LINEAR_EXACT",
-                       CreateCallAble(std::function<cv::InterpolationFlags()>(
-                           []() { return cv::INTER_LINEAR_EXACT; }))));
-    item.options.push_back("INTER_NEAREST_EXACT");
-    ALL_CONFIGS.insert(
-        std::make_pair("interpolationFlags.INTER_NEAREST_EXACT",
-                       CreateCallAble(std::function<cv::InterpolationFlags()>(
-                           []() { return cv::INTER_NEAREST_EXACT; }))));
     CONFIG_TABLE.push_back(item);
   }
   {

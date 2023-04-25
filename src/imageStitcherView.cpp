@@ -14,6 +14,7 @@
 #include <QTextEdit>
 #include <sstream>
 #include <string>
+#include <thread>
 
 #include "core/qtCommon/cv2qt.hpp"
 
@@ -75,8 +76,8 @@ void ImageStitcherView::SetupUi(const int width, const int height) {
 
   gridLayout->addWidget(splitter, 1);
   gridLayout->addWidget(statusbar);
-  gridLayout->setSpacing(10);
-  gridLayout->setMargin(5);
+  gridLayout->setSpacing(0);
+  gridLayout->setMargin(0);
 
   resize(width, height);
   setLayout(gridLayout);
@@ -93,9 +94,8 @@ void ImageStitcherView::SetupUi(const int width, const int height) {
   connect(config_button, &QPushButton::clicked, [this](bool checker) {
     ConfigDialog *config_dialog = new ConfigDialog;
     CustomizeTitleWidget *config_window = new CustomizeTitleWidget();
-    auto window_flags = config_window->windowFlags();
-    config_window->setParent(this);
-    config_window->setWindowFlags(window_flags);
+    QWidget::connect(this, &QPushButton::destroyed, config_window,
+                     [config_window](QObject *) { config_window->close(); });
     config_window->setWindowTitle(tr("配置"));
     config_window->setCentralWidget(config_dialog);
     // config_window->setWindowResizable(false);
@@ -159,7 +159,7 @@ void ImageStitcherView::SetupUi(const int width, const int height) {
   connect(clean_images, &QPushButton::clicked, this, [this](bool checked) {
     stitch_button->setText(tr("拼接"));
     stitch_button->disconnect();
-		image_stitcher.Clean();
+    image_stitcher.Clean();
     connect(stitch_button, &QPushButton::clicked, this,
             &ImageStitcherView::Stitch);
     clean_images->setEnabled(false);
@@ -177,6 +177,11 @@ void ImageStitcherView::SetupUi(const int width, const int height) {
               tr("请拖拽或右键添加图片到待拼接图像列表中\n") +
               tr("点击拼接可以完成图像拼接\n") +
               tr("点击配置可以更改拼接算法"));
+}
+ImageStitcherView::~ImageStitcherView() {
+  if (task.joinable()) {
+    task.join();
+  }
 }
 
 void ImageStitcherView::ShowNextResults() {
@@ -262,14 +267,14 @@ void ImageStitcherView::Stitch(bool checked) {
   image_stitcher.RemoveAllImages();
   std::vector<std::string> image_files;
   for (const auto &[file_name, pixmap] : Items) {
-    // ImagePtr img = ImagePtr(new
-    // Image(cv2qt::QImage2CvMat(pixmap.toImage())));
     image_files.push_back(file_name.toStdString());
   }
   image_stitcher.SetImages(image_files);
   if (kUseThread) {
-    task = std::async(std::launch::async,
-                      [this]() { return image_stitcher.Stitch(); });
+    if (task.joinable()) {
+      task.join();
+    }
+    task.swap(std::thread([this]() { return image_stitcher.Stitch(); }));
   } else {
     image_stitcher.Stitch();
   }
@@ -277,9 +282,8 @@ void ImageStitcherView::Stitch(bool checked) {
 
 void ImageStitcherView::ShowMidData(bool checked) {
   CustomizeTitleWidget *main_window = new CustomizeTitleWidget();
-  auto window_flags = main_window->windowFlags();
-  main_window->setParent(this);
-  main_window->setWindowFlags(window_flags);
+  connect(this, &ImageStitcherView::destroyed, main_window,
+          [main_window](QObject *) { main_window->close(); });
   MidDataView *view = new MidDataView(&image_stitcher);
   main_window->setWindowTitle(tr("中间数据"));
   main_window->setCentralWidget(view);
@@ -521,9 +525,8 @@ void MidDataView::SetupUi() {
         original_buttons[i], &QPushButton::clicked, this,
         [i, this](bool checked) {
           CustomizeTitleWidget *main_window = new CustomizeTitleWidget();
-          auto window_flags = main_window->windowFlags();
-          main_window->setParent(this);
-          main_window->setWindowFlags(window_flags);
+          connect(this, &MidDataView::destroyed, main_window,
+                  [main_window](QObject *) { main_window->close(); });
           ImageView *image_view = new ImageView();
           image_view->SetImage(GetImage(i));
           main_window->setCentralWidget(image_view);
@@ -539,9 +542,8 @@ void MidDataView::SetupUi() {
     connect(features_buttons[i], &QPushButton::clicked, this,
             [i, this](bool checked) {
               CustomizeTitleWidget *main_window = new CustomizeTitleWidget();
-              auto window_flags = main_window->windowFlags();
-              main_window->setParent(this);
-              main_window->setWindowFlags(window_flags);
+              connect(this, &MidDataView::destroyed, main_window,
+                      [main_window](QObject *) { main_window->close(); });
               ImageView *image_view = new ImageView();
               QTextEdit *text_edit = new QTextEdit();
               QTextEdit *text_edit1 = new QTextEdit();
@@ -575,9 +577,8 @@ void MidDataView::SetupUi() {
       connect(matches_buttons[i][j], &QPushButton::clicked, this,
               [i, j, this](bool checked) {
                 CustomizeTitleWidget *main_window = new CustomizeTitleWidget();
-                auto window_flags = main_window->windowFlags();
-                main_window->setParent(this);
-                main_window->setWindowFlags(window_flags);
+                connect(this, &MidDataView::destroyed, main_window,
+                        [main_window](QObject *) { main_window->close(); });
                 ImageView *image_view = new ImageView();
                 ImageView *image_view1 = new ImageView();
                 QTextEdit *text_edit = new QTextEdit();
@@ -628,9 +629,8 @@ void MidDataView::SetupUi() {
         compensator_buttons[i], &QPushButton::clicked, this,
         [i, this](bool checked) {
           CustomizeTitleWidget *main_window = new CustomizeTitleWidget();
-          auto window_flags = main_window->windowFlags();
-          main_window->setParent(this);
-          main_window->setWindowFlags(window_flags);
+          connect(this, &MidDataView::destroyed, main_window,
+                  [main_window](QObject *) { main_window->close(); });
           ImageView *image_view = new ImageView();
           ImageView *image_view1 = new ImageView();
           QSplitter *splitter = new QSplitter();
@@ -660,9 +660,8 @@ void MidDataView::SetupUi() {
     connect(seam_mask_buttons[i], &QPushButton::clicked, this,
             [i, this](bool checked) {
               CustomizeTitleWidget *main_window = new CustomizeTitleWidget();
-              auto window_flags = main_window->windowFlags();
-              main_window->setParent(this);
-              main_window->setWindowFlags(window_flags);
+              connect(this, &MidDataView::destroyed, main_window,
+                      [main_window](QObject *) { main_window->close(); });
               ImageView *image_view = new ImageView();
 
               image_view->SetImage(GetSeamMaskImage(i));
