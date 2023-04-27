@@ -262,21 +262,23 @@ void ImageStitcherView::_Solts::Result(std::vector<ImagePtr> imgs) {
 
 void ImageStitcherView::Stitch(bool checked) {
   StartStitcher();
-
   auto Items = m_model->getItems(0, m_model->rowCount());
-  image_stitcher.RemoveAllImages();
-  std::vector<std::string> image_files;
-  for (const auto &[file_name, pixmap] : Items) {
-    image_files.push_back(file_name.toStdString());
-  }
-  image_stitcher.SetImages(image_files);
+  auto stitch_func = [this, Items]() {
+    image_stitcher.RemoveAllImages();
+    std::vector<std::string> image_files;
+    for (const auto &[file_name, pixmap] : Items) {
+      image_files.push_back(file_name.toStdString());
+    }
+    image_stitcher.SetImages(image_files);
+    return image_stitcher.Stitch();
+  };
   if (kUseThread) {
     if (task.joinable()) {
       task.join();
     }
-    task.swap(std::thread([this]() { return image_stitcher.Stitch(); }));
+    task.swap(std::thread(stitch_func));
   } else {
-    image_stitcher.Stitch();
+    stitch_func();
   }
 }
 
