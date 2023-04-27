@@ -81,3 +81,4 @@ CMakeLists.txt.user*
 */.vs
 */build
 */out
+compile_commands.json
