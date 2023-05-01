@@ -9,9 +9,7 @@ namespace Test {
 using namespace ImageStitch;
 
 TEST(ImageViewTest, ViewWindowTest) {
-  std::string imgPath =
-      "E:\\workplace\\qt_project\\ImageStitch\\src\\gtest\\testData\\"
-      "image1.jpg";
+  std::string imgPath = ".\\testData\\image1.jpg";
   QImage img;
   if (img.load(imgPath.c_str())) {
     ImageView *view = new ImageView();

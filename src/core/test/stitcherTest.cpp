@@ -25,10 +25,10 @@ class StatusShow : public Trackable {
     std::cout << message << std::endl;
   }
   void print1(const std::string &message) { std::cout << message << std::endl; }
-  void showImage(ImagePtr img) {
+  void showImage(std::vector<ImagePtr> img) {
     LOG(INFO) << "Stitched image";
     ImageView *view = new ImageView();
-    view->SetImage(cv2qt::CvMat2QImage(*img));
+    view->SetImage(cv2qt::CvMat2QImage(*img[0]));
     view->setAttribute(Qt::WA_DeleteOnClose, true);
     view->show();
   }
@@ -52,11 +52,9 @@ TEST(ImageStitcherTest, CvStitcherTest) {
   LOG(INFO) << "start Stitch image";
   StatusShow show;
   imageStitcher->signal_run_message.connect(&StatusShow::print, &show);
-  // imageStitcher->signal_result.connect(&StatusShow::showImage, &show);
-  auto image = imageStitcher->GetImage(0);
-  auto features = imageStitcher->DetectFeatures(*image);
-	
+  imageStitcher->signal_result.connect(&StatusShow::showImage, &show);
 
+  imageStitcher->Stitch();
   LOG(INFO) << "Stitched image";
 }
 }  // namespace Test

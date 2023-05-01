@@ -19,6 +19,10 @@ namespace {
 class CallAbleBase {
  public:
   virtual ~CallAbleBase() {}
+  template <typename ResultT, typename... Args>
+  void operator()(ResultT &out, Args &&...args);
+  template <typename ResultT, typename... Args>
+  ResultT call(Args &&...args);
 };
 template <typename ResultT, typename... Args>
 class CallAble : public CallAbleBase {
@@ -29,8 +33,22 @@ class CallAble : public CallAbleBase {
  public:
   CallAble(InvokeFn invoke_ptr) : invoke_ptr(invoke_ptr) {}
   ~CallAble() {}
-  ResultT call(Args... args) { return invoke_ptr(std::forward<Args>(args)...); }
+  ResultT call(Args &&...args) {
+    return invoke_ptr(std::forward<Args>(args)...);
+  }
 };
+
+template <typename ResultT, typename... Args>
+void CallAbleBase::operator()(ResultT &out, Args &&...args) {
+  out = dynamic_cast<CallAble<ResultT, Args...> *>(this)->call(
+      std::forward<Args>(args)...);
+}
+template <typename ResultT, typename... Args>
+ResultT CallAbleBase::call(Args &&...args) {
+  return dynamic_cast<CallAble<ResultT, Args...> *>(this)->call(
+      std::forward<Args>(args)...);
+}
+
 template <class T, typename ResultT, typename... Args>
 static std::shared_ptr<CallAbleBase> CreateCallAble(ResultT (T::*func)(Args...),
                                                     T *self) {
@@ -46,21 +64,80 @@ static std::shared_ptr<CallAbleBase> CreateCallAble(
     std::function<ResultT(Args...)> func) {
   return std::shared_ptr<CallAbleBase>(new CallAble<ResultT, Args...>(func));
 }
-std::string GetDots() { return "..."; }
 static std::map<std::string, std::shared_ptr<CallAbleBase>> ALL_CONFIGS;
-static std::vector<ConfigItem> CONFIG_TABLE;
+static std::map<std::string, ConfigItem> CONFIG_TABLE;
+static std::vector<std::string> CONFIG_ITEMS;
+
+void CreateConfigItem(const std::string &item_name,
+                      const ConfigItem::Type &config_type,
+                      const std::string &description = "") {
+  CONFIG_ITEMS.push_back(item_name);
+  CONFIG_TABLE.insert(std::make_pair(
+      item_name, ConfigItem(item_name, config_type, description)));
+}
+template <typename ResultT, typename... Args>
+void RegisterOptionIntoConfig(const std::string &item_name,
+                              const std::string &option_name,
+                              ResultT (*func)(Args...)) {
+  auto item = CONFIG_TABLE.find(item_name);
+  if (item == CONFIG_TABLE.end()) {
+    LOG(WARNING) << "Couldn't find config item : " << item_name
+                 << " create new STRING config.";
+    CreateConfigItem(item_name, ConfigItem::STRING);
+    item = CONFIG_TABLE.find(item_name);
+  }
+  item->second.options.push_back(option_name);
+  ALL_CONFIGS.insert(
+      std::make_pair(item_name + "." + option_name,
+                     CreateCallAble(std::function<ResultT(Args...)>(func))));
+}
+template <typename ValueT>
+void _RegisterOptionIntoConfig(const std::string &item_name,
+                               const ValueT &min_value, const ValueT &max_value,
+                               std::true_type) {
+  auto item = CONFIG_TABLE.find(item_name);
+  if (item == CONFIG_TABLE.end()) {
+    LOG(WARNING) << "Couldn't find config item : " << item_name
+                 << " create new STRING config.";
+    CreateConfigItem(item_name, ConfigItem::INT);
+    item = CONFIG_TABLE.find(item_name);
+  }
+  item->second.range[0] = min_value;
+  item->second.range[1] = max_value;
+}
+template <typename ValueT>
+void _RegisterOptionIntoConfig(const std::string &item_name,
+                               const ValueT &min_value, const ValueT &max_value,
+                               std::false_type) {
+  auto item = CONFIG_TABLE.find(item_name);
+  if (item == CONFIG_TABLE.end()) {
+    LOG(WARNING) << "Couldn't find config item : " << item_name
+                 << " create new STRING config.";
+    CreateConfigItem(item_name, ConfigItem::FLOAT);
+    item = CONFIG_TABLE.find(item_name);
+  }
+  item->second.range[0] = min_value;
+  item->second.range[1] = max_value;
+}
+template <typename ValueT>
+void RegisterOptionIntoConfig(const std::string &item_name,
+                              const ValueT &min_value,
+                              const ValueT &max_value) {
+  _RegisterOptionIntoConfig(item_name, min_value, max_value,
+                            std::is_integral<ValueT>::type());
+}
 
 class EstimatorListener : public cv::detail::Estimator {
  public:
-  EstimatorListener(cv::Ptr<cv::detail::Estimator> estimator,
+  EstimatorListener(cv::Ptr<cv::detail::Estimator> Estimator,
                     ImageStitcher *stitcher = nullptr)
-      : _estimator(estimator), _stitcher(stitcher) {}
+      : _estimator(Estimator), _stitcher(stitcher) {}
   bool estimate(
       const std::vector<ImageFeatures> &features,
       const std::vector<MatchesInfo> &pairwise_matches,
       CV_OUT std::vector<cv::detail::CameraParams> &cameras) override {
     if (_stitcher != nullptr) {
-      _stitcher->signal_run_message("Estimating Image " + GetDots(), -1);
+      _stitcher->signal_run_message("Estimating Image ", -1);
     }
     bool result = (*_estimator)(features, pairwise_matches, cameras);
     LOG(INFO) << "Estimate finished" << std::endl;
@@ -115,9 +192,9 @@ class FeaturesMatcherListener : public cv::detail::FeaturesMatcher {
 
 class WarperListener : public cv::detail::RotationWarper {
  public:
-  WarperListener(cv::Ptr<cv::detail::RotationWarper> warper,
+  WarperListener(cv::Ptr<cv::detail::RotationWarper> Warper,
                  ImageStitcher *stitcher = nullptr)
-      : _warper(warper), _stitcher(stitcher) {}
+      : _warper(Warper), _stitcher(stitcher) {}
 
   cv::Point2f warpPoint(const cv::Point2f &pt, cv::InputArray K,
                         cv::InputArray R) override {
@@ -141,7 +218,7 @@ class WarperListener : public cv::detail::RotationWarper {
                     int interp_mode, int border_mode, cv::Size dst_size,
                     CV_OUT cv::OutputArray dst) override {
     if (_stitcher != nullptr) {
-      _stitcher->signal_run_message.notify("Warping" + GetDots(), -1);
+      _stitcher->signal_run_message.notify("Warping", -1);
     }
     _warper->warpBackward(src, K, R, interp_mode, border_mode, dst_size, dst);
     LOG(INFO) << "Warping backward finished";
@@ -185,7 +262,7 @@ class BundleAdjusterListener : public cv::detail::BundleAdjusterBase {
                 const std::vector<MatchesInfo> &pairwise_matches,
                 std::vector<cv::detail::CameraParams> &cameras) override {
     if (_stitcher != nullptr) {
-      _stitcher->signal_run_message.notify("BundleAdjusting" + GetDots(), -1);
+      _stitcher->signal_run_message.notify("BundleAdjusting", -1);
     }
     bool result = (*_bundle_adjuster)(features, pairwise_matches, cameras);
     if (_stitcher != nullptr) {
@@ -208,9 +285,9 @@ class BundleAdjusterListener : public cv::detail::BundleAdjusterBase {
 
 class BlenderListener : public cv::detail::Blender {
  public:
-  BlenderListener(cv::Ptr<cv::detail::Blender> blender,
+  BlenderListener(cv::Ptr<cv::detail::Blender> Blender,
                   ImageStitcher *stitcher = nullptr)
-      : _blender(blender), _stitcher(stitcher) {}
+      : _blender(Blender), _stitcher(stitcher) {}
   void prepare(const std::vector<cv::Point> &corners,
                const std::vector<cv::Size> &sizes) override {
     _blender->prepare(corners, sizes);
@@ -221,7 +298,7 @@ class BlenderListener : public cv::detail::Blender {
   }
   void blend(cv::InputOutputArray dst, cv::InputOutputArray dst_mask) override {
     if (_stitcher != nullptr) {
-      _stitcher->signal_run_message.notify("Blending" + GetDots(), -1);
+      _stitcher->signal_run_message.notify("Blending", -1);
     }
     _blender->blend(dst, dst_mask);
     LOG(INFO) << "Blender finished";
@@ -241,7 +318,7 @@ class SeamFinderListener : public cv::detail::SeamFinder {
             const std::vector<cv::Point> &corners,
             std::vector<cv::UMat> &masks) override {
     if (_stitcher != nullptr) {
-      _stitcher->signal_run_message.notify("Seam finding" + GetDots(), -1);
+      _stitcher->signal_run_message.notify("Seam finding", -1);
     }
     _seam_finder->find(src, corners, masks);
     if (_stitcher != nullptr) {
@@ -303,8 +380,7 @@ class FeatureDetectorListener : public cv::FeatureDetector {
   void detect(cv::InputArray image, std::vector<KeyPoint> &keypoints,
               cv::InputArray mask = cv::noArray()) override {
     if (_stitcher != nullptr) {
-      _stitcher->signal_run_message("Feature detector detecting" + GetDots(),
-                                    -1);
+      _stitcher->signal_run_message("Feature detector detecting", -1);
     }
     _feature_detector->detect(image, keypoints, mask);
     LOG(INFO) << "Feature detector detected";
@@ -313,8 +389,7 @@ class FeatureDetectorListener : public cv::FeatureDetector {
               std::vector<std::vector<KeyPoint>> &keypoints,
               cv::InputArrayOfArrays masks = cv::noArray()) override {
     if (_stitcher != nullptr) {
-      _stitcher->signal_run_message("Feature detector detecting" + GetDots(),
-                                    -1);
+      _stitcher->signal_run_message("Feature detector detecting", -1);
     }
     _feature_detector->detect(images, keypoints, masks);
     LOG(INFO) << "Feature detector detected";
@@ -322,8 +397,7 @@ class FeatureDetectorListener : public cv::FeatureDetector {
   void compute(cv::InputArray image, std::vector<KeyPoint> &keypoints,
                cv::OutputArray descriptors) override {
     if (_stitcher != nullptr) {
-      _stitcher->signal_run_message("Feature detector computing" + GetDots(),
-                                    -1);
+      _stitcher->signal_run_message("Feature detector computing", -1);
     }
     _feature_detector->compute(image, keypoints, descriptors);
     LOG(INFO) << "Feature detector computed";
@@ -332,8 +406,7 @@ class FeatureDetectorListener : public cv::FeatureDetector {
                std::vector<std::vector<KeyPoint>> &keypoints,
                cv::OutputArrayOfArrays descriptors) {
     if (_stitcher != nullptr) {
-      _stitcher->signal_run_message("Feature detector computing" + GetDots(),
-                                    -1);
+      _stitcher->signal_run_message("Feature detector computing", -1);
     }
     _feature_detector->compute(images, keypoints, descriptors);
     LOG(INFO) << "Feature detector computed";
@@ -343,8 +416,8 @@ class FeatureDetectorListener : public cv::FeatureDetector {
                         cv::OutputArray descriptors,
                         bool useProvidedKeypoints = false) override {
     if (_stitcher != nullptr) {
-      _stitcher->signal_run_message(
-          "Feature detector detecting and computing" + GetDots(), -1);
+      _stitcher->signal_run_message("Feature detector detecting and computing",
+                                    -1);
     }
     _feature_detector->detectAndCompute(image, mask, keypoints, descriptors,
                                         useProvidedKeypoints);
@@ -364,611 +437,369 @@ static void init() {
     return;
   }
   initialized = true;
-  {
-    ConfigItem item;
-    item.title = "mode";
-    item.type = ConfigItem::STRING;
-    item.description =
-        "拼接模式，PANORAMA拼接模式为通用全景图模式。"
-        "SCANS假设图像是通过扫描仪或其他扫描设备拍摄的"
-        "平面的图。";
-    item.options.push_back("PANORAMA");
-    ALL_CONFIGS.insert(std::make_pair(
-        "mode.PANORAMA",
-        CreateCallAble(std::function<cv::Ptr<cv::Stitcher>()>([]() {
-          return cv::Stitcher::create(cv::Stitcher::Mode::PANORAMA);
-        }))));
-    item.options.push_back("SCANS");
-    ALL_CONFIGS.insert(std::make_pair(
-        "mode.SCANS",
-        CreateCallAble(std::function<cv::Ptr<cv::Stitcher>()>([]() {
-          return cv::Stitcher::create(cv::Stitcher::Mode::SCANS);
-        }))));
-    item.options.push_back("INCREMENTAL");
-    ALL_CONFIGS.insert(std::make_pair(
-        "mode.INCREMENTAL",
-        CreateCallAble(std::function<cv::Ptr<cv::Stitcher>()>([]() {
-          return cv::Stitcher::create(cv::Stitcher::Mode::SCANS);
-        }))));
-    CONFIG_TABLE.push_back(item);
-  }
-  {
-    ConfigItem item;
-    item.title = "estimator";
-    item.type = ConfigItem::STRING;
-    item.description = "图像相机参数推断器，一般通过单应性矩阵推断参数。";
-    item.options.push_back("HomographyBasedEstimator");
-    ALL_CONFIGS.insert(std::make_pair(
-        "estimator.HomographyBasedEstimator",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::Estimator>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new EstimatorListener(
-                  new cv::detail::HomographyBasedEstimator(), stitcher);
-            }))));
-    item.options.push_back("AffineBasedEstimator");
-    ALL_CONFIGS.insert(std::make_pair(
-        "estimator.AffineBasedEstimator",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::Estimator>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new EstimatorListener(
-                  new cv::detail::AffineBasedEstimator(), stitcher);
-            }))));
-    CONFIG_TABLE.push_back(item);
-  }
-  {
-    ConfigItem item;
-    item.title = "featuresFinder";
-    item.type = ConfigItem::STRING;
-    item.description =
-        "图像特征点提取器，用于提取图像中具备可描述特征的点，"
-        "主流特征提取算法有SIFT，SURF，ORB。";
-    item.options.push_back("ORB");
-    ALL_CONFIGS.insert(std::make_pair(
-        "featuresFinder.ORB",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::FeatureDetector>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new FeatureDetectorListener(
-                  cv::Ptr<cv::FeatureDetector>(cv::ORB::create()), stitcher);
-            }))));
-    item.options.push_back("SIFT");
-    ALL_CONFIGS.insert(std::make_pair(
-        "featuresFinder.SIFT",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::FeatureDetector>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new FeatureDetectorListener(
-                  cv::Ptr<cv::FeatureDetector>(cv::SIFT::create()), stitcher);
-            }))));
-    item.options.push_back("SURF");
-    ALL_CONFIGS.insert(std::make_pair(
-        "featuresFinder.SURF",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::FeatureDetector>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new FeatureDetectorListener(
-                  cv::Ptr<cv::FeatureDetector>(cv::xfeatures2d::SURF::create()),
-                  stitcher);
-            }))));
-    item.options.push_back("BRISK");
-    ALL_CONFIGS.insert(std::make_pair(
-        "featuresFinder.BRISK",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::FeatureDetector>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new FeatureDetectorListener(
-                  cv::Ptr<cv::FeatureDetector>(cv::BRISK::create()), stitcher);
-            }))));
-    item.options.push_back("KAZE");
-    ALL_CONFIGS.insert(std::make_pair(
-        "featuresFinder.KAZE",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::FeatureDetector>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new FeatureDetectorListener(
-                  cv::Ptr<cv::FeatureDetector>(cv::KAZE::create()), stitcher);
-            }))));
-    item.options.push_back("AKAZE");
-    ALL_CONFIGS.insert(std::make_pair(
-        "featuresFinder.AKAZE",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::FeatureDetector>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new FeatureDetectorListener(
-                  cv::Ptr<cv::FeatureDetector>(cv::AKAZE::create()), stitcher);
-            }))));
-    CONFIG_TABLE.push_back(item);
-  }
-  {
-    ConfigItem item;
-    item.title = "featuresMatcher";
-    item.type = ConfigItem::STRING;
-    item.description =
-        "特征匹配器，用于匹配两张图像中的特征点，主流匹配算法有。";
-    item.options.push_back("BestOf2NearestMatcher");
-    ALL_CONFIGS.insert(std::make_pair(
-        "featuresMatcher.BestOf2NearestMatcher",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::FeaturesMatcher>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new FeaturesMatcherListener(
-                  new cv::detail::BestOf2NearestMatcher(true), stitcher);
-            }))));
-    item.options.push_back("BestOf2NearestRangeMatcher");
-    ALL_CONFIGS.insert(std::make_pair(
-        "featuresMatcher.BestOf2NearestRangeMatcher",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::FeaturesMatcher>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new FeaturesMatcherListener(
-                  new cv::detail::BestOf2NearestRangeMatcher(true), stitcher);
-            }))));
-    item.options.push_back("AffineBestOf2NearestMatcher");
-    ALL_CONFIGS.insert(std::make_pair(
-        "featuresMatcher.AffineBestOf2NearestMatcher",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::FeaturesMatcher>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new FeaturesMatcherListener(
-                  new cv::detail::AffineBestOf2NearestMatcher(false, true),
-                  stitcher);
-            }))));
-    CONFIG_TABLE.push_back(item);
-  }
-  {
-    ConfigItem item;
-    item.title = "warper";
-    item.type = ConfigItem::STRING;
-    item.description =
-        "投影类型，用于将图像投影到平面或球面上，主流投影类型有平面"
-        "投影，柱面投影，球面投影等。";
-    item.options.push_back("PlaneWarper");
-    ALL_CONFIGS.insert(std::make_pair(
-        "warper.PlaneWarper",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::WarperCreator>(ImageStitcher * stitcher)>(
-                [](ImageStitcher *stitcher) {
-                  return new TWarperCreator(cv::makePtr<cv::PlaneWarper>(),
-                                            stitcher);
-                }))));
-    item.options.push_back("CylindricalWarper");
-    ALL_CONFIGS.insert(std::make_pair(
-        "warper.CylindricalWarper",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::WarperCreator>(ImageStitcher * stitcher)>(
-                [](ImageStitcher *stitcher) {
-                  return new TWarperCreator(
-                      cv::makePtr<cv::CylindricalWarper>(), stitcher);
-                }))));
-    item.options.push_back("SphericalWarper");
-    ALL_CONFIGS.insert(std::make_pair(
-        "warper.SphericalWarper",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::WarperCreator>(ImageStitcher * stitcher)>(
-                [](ImageStitcher *stitcher) {
-                  return new TWarperCreator(cv::makePtr<cv::SphericalWarper>(),
-                                            stitcher);
-                }))));
-    item.options.push_back("AffineWarper");
-    ALL_CONFIGS.insert(std::make_pair(
-        "warper.AffineWarper",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::WarperCreator>(ImageStitcher * stitcher)>(
-                [](ImageStitcher *stitcher) {
-                  return new TWarperCreator(cv::makePtr<cv::AffineWarper>(),
-                                            stitcher);
-                }))));
-    item.options.push_back("FisheyeWarper");
-    ALL_CONFIGS.insert(std::make_pair(
-        "warper.FisheyeWarper",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::WarperCreator>(ImageStitcher * stitcher)>(
-                [](ImageStitcher *stitcher) {
-                  return new TWarperCreator(cv::makePtr<cv::FisheyeWarper>(),
-                                            stitcher);
-                }))));
-    item.options.push_back("StereographicWarper");
-    ALL_CONFIGS.insert(std::make_pair(
-        "warper.StereographicWarper",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::WarperCreator>(ImageStitcher * stitcher)>(
-                [](ImageStitcher *stitcher) {
-                  return new TWarperCreator(
-                      cv::makePtr<cv::StereographicWarper>(), stitcher);
-                }))));
-    item.options.push_back("CompressedRectilinearWarper");
-    ALL_CONFIGS.insert(std::make_pair(
-        "warper.CompressedRectilinearWarper",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::WarperCreator>(ImageStitcher * stitcher)>(
-                [](ImageStitcher *stitcher) {
-                  return new TWarperCreator(
-                      cv::makePtr<cv::CompressedRectilinearWarper>(), stitcher);
-                }))));
-    item.options.push_back("CompressedRectilinearPortraitWarper");
-    ALL_CONFIGS.insert(std::make_pair(
-        "warper.CompressedRectilinearPortraitWarper",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::WarperCreator>(ImageStitcher * stitcher)>(
-                [](ImageStitcher *stitcher) {
-                  return new TWarperCreator(
-                      cv::makePtr<cv::CompressedRectilinearPortraitWarper>(),
-                      stitcher);
-                }))));
-    item.options.push_back("PaniniWarper");
-    ALL_CONFIGS.insert(std::make_pair(
-        "warper.PaniniWarper",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::WarperCreator>(ImageStitcher * stitcher)>(
-                [](ImageStitcher *stitcher) {
-                  return new TWarperCreator(cv::makePtr<cv::PaniniWarper>(),
-                                            stitcher);
-                }))));
-    item.options.push_back("PaniniPortraitWarper");
-    ALL_CONFIGS.insert(std::make_pair(
-        "warper.PaniniPortraitWarper",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::WarperCreator>(ImageStitcher * stitcher)>(
-                [](ImageStitcher *stitcher) {
-                  return new TWarperCreator(
-                      cv::makePtr<cv::PaniniPortraitWarper>(), stitcher);
-                }))));
-    item.options.push_back("MercatorWarper");
-    ALL_CONFIGS.insert(std::make_pair(
-        "warper.MercatorWarper",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::WarperCreator>(ImageStitcher * stitcher)>(
-                [](ImageStitcher *stitcher) {
-                  return new TWarperCreator(cv::makePtr<cv::MercatorWarper>(),
-                                            stitcher);
-                }))));
-    item.options.push_back("TransverseMercatorWarper");
-    ALL_CONFIGS.insert(std::make_pair(
-        "warper.TransverseMercatorWarper",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::WarperCreator>(ImageStitcher * stitcher)>(
-                [](ImageStitcher *stitcher) {
-                  return new TWarperCreator(
-                      cv::makePtr<cv::TransverseMercatorWarper>(), stitcher);
-                }))));
+  CreateConfigItem("Mode", ConfigItem::STRING,
+                   "拼接模式，PANORAMA拼接模式为通用全景图模式。"
+                   "SCANS假设图像是通过扫描仪或其他扫描设备拍摄的"
+                   "平面的图。");
+
+  RegisterOptionIntoConfig(
+      "Mode", "PANORAMA",
+      +[]() { return cv::Stitcher::create(cv::Stitcher::Mode::PANORAMA); });
+  RegisterOptionIntoConfig(
+      "Mode", "SCANS",
+      +[]() { return cv::Stitcher::create(cv::Stitcher::Mode::SCANS); });
+
+  CreateConfigItem("Estimator", ConfigItem::STRING,
+                   "图像相机参数推断器，一般通过单应性矩阵推断参数。");
+  RegisterOptionIntoConfig(
+      "Estimator", "HomographyBasedEstimator",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::Estimator> {
+        return new EstimatorListener(new cv::detail::HomographyBasedEstimator(),
+                                     stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "Estimator", "AffineBasedEstimator",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::Estimator> {
+        return new EstimatorListener(new cv::detail::AffineBasedEstimator(),
+                                     stitcher);
+      });
+
+  CreateConfigItem("FeaturesFinder", ConfigItem::STRING,
+                   "图像特征点提取器，用于提取图像中具备可描述特征的点，"
+                   "主流特征提取算法有SIFT，SURF，ORB。");
+  RegisterOptionIntoConfig(
+      "FeaturesFinder", "ORB",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::FeatureDetector> {
+        return new FeatureDetectorListener(
+            cv::Ptr<cv::FeatureDetector>(cv::ORB::create()), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "FeaturesFinder", "SIFT",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::FeatureDetector> {
+        return new FeatureDetectorListener(
+            cv::Ptr<cv::FeatureDetector>(cv::SIFT::create()), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "FeaturesFinder", "SURF",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::FeatureDetector> {
+        return new FeatureDetectorListener(
+            cv::Ptr<cv::FeatureDetector>(cv::xfeatures2d::SURF::create()),
+            stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "FeaturesFinder", "BRISK",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::FeatureDetector> {
+        return new FeatureDetectorListener(
+            cv::Ptr<cv::FeatureDetector>(cv::BRISK::create()), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "FeaturesFinder", "KAZE",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::FeatureDetector> {
+        return new FeatureDetectorListener(
+            cv::Ptr<cv::FeatureDetector>(cv::KAZE::create()), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "FeaturesFinder", "AKAZE",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::FeatureDetector> {
+        return new FeatureDetectorListener(
+            cv::Ptr<cv::FeatureDetector>(cv::AKAZE::create()), stitcher);
+      });
+
+  CreateConfigItem("FeaturesMatcher", ConfigItem::STRING,
+                   "特征匹配器，用于匹配两张图像中的特征点，主流匹配算法有。");
+  RegisterOptionIntoConfig(
+      "FeaturesMatcher", "BestOf2NearestMatcher",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::FeaturesMatcher> {
+        return new FeaturesMatcherListener(
+            new cv::detail::BestOf2NearestMatcher(true), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "FeaturesMatcher", "BestOf2NearestRangeMatcher",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::FeaturesMatcher> {
+        return new FeaturesMatcherListener(
+            new cv::detail::BestOf2NearestRangeMatcher(true), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "FeaturesMatcher", "AffineBestOf2NearestMatcher",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::FeaturesMatcher> {
+        return new FeaturesMatcherListener(
+            new cv::detail::AffineBestOf2NearestMatcher(true), stitcher);
+      });
+
+  CreateConfigItem("Warper", ConfigItem::STRING,
+                   "投影类型，用于将图像投影到平面或球面上，主流投影类型有平面"
+                   "投影，柱面投影，球面投影等。");
+  RegisterOptionIntoConfig(
+      "Warper", "PlaneWarper",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::WarperCreator> {
+        return new TWarperCreator(cv::makePtr<cv::PlaneWarper>(), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "Warper", "CylindricalWarper",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::WarperCreator> {
+        return new TWarperCreator(cv::makePtr<cv::CylindricalWarper>(),
+                                  stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "Warper", "SphericalWarper",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::WarperCreator> {
+        return new TWarperCreator(cv::makePtr<cv::SphericalWarper>(), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "Warper", "AffineWarper",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::WarperCreator> {
+        return new TWarperCreator(cv::makePtr<cv::AffineWarper>(), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "Warper", "FisheyeWarper",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::WarperCreator> {
+        return new TWarperCreator(cv::makePtr<cv::FisheyeWarper>(), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "Warper", "StereographicWarper",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::WarperCreator> {
+        return new TWarperCreator(cv::makePtr<cv::StereographicWarper>(),
+                                  stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "Warper", "CompressedRectilinearWarper",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::WarperCreator> {
+        return new TWarperCreator(
+            cv::makePtr<cv::CompressedRectilinearWarper>(), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "Warper", "CompressedRectilinearPortraitWarper",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::WarperCreator> {
+        return new TWarperCreator(
+            cv::makePtr<cv::CompressedRectilinearPortraitWarper>(), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "Warper", "PaniniPortraitWarper",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::WarperCreator> {
+        return new TWarperCreator(cv::makePtr<cv::PaniniPortraitWarper>(),
+                                  stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "Warper", "MercatorWarper",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::WarperCreator> {
+        return new TWarperCreator(cv::makePtr<cv::MercatorWarper>(), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "Warper", "TransverseMercatorWarper",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::WarperCreator> {
+        return new TWarperCreator(cv::makePtr<cv::TransverseMercatorWarper>(),
+                                  stitcher);
+      });
 #ifdef HAVE_OPENCV_CUDAWARPING
-    item.options.push_back("PlaneWarperGpu");
-    ALL_CONFIGS.insert(std::make_pair(
-        "warper.PlaneWarperGpu",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::WarperCreator>(ImageStitcher * stitcher)>(
-                [](ImageStitcher *stitcher) {
-                  return new TWarperCreator(cv::makePtr<cv::PlaneWarperGpu>(),
-                                            stitcher);
-                }))));
-    item.options.push_back("CylindricalWarperGpu");
-    ALL_CONFIGS.insert(std::make_pair(
-        "warper.CylindricalWarperGpu",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::WarperCreator>(ImageStitcher * stitcher)>(
-                [](ImageStitcher *stitcher) {
-                  return new TWarperCreator(
-                      cv::makePtr<cv::CylindricalWarperGpu>(), stitcher);
-                }))));
-    item.options.push_back("SphericalWarperGpu");
-    ALL_CONFIGS.insert(std::make_pair(
-        "warper.SphericalWarperGpu",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::WarperCreator>(ImageStitcher * stitcher)>(
-                [](ImageStitcher *stitcher) {
-                  return new TWarperCreator(
-                      cv::makePtr<cv::SphericalWarperGpu>(), stitcher);
-                }))));
+  RegisterOptionIntoConfig(
+      "Warper", "PlaneWarperGpu",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::WarperCreator> {
+        return new TWarperCreator(cv::makePtr<cv::PlaneWarperGpu>(), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "Warper", "CylindricalWarperGpu",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::WarperCreator> {
+        return new TWarperCreator(cv::makePtr<cv::CylindricalWarperGpu>(),
+                                  stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "Warper", "SphericalWarperGpu",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::WarperCreator> {
+        return new TWarperCreator(cv::makePtr<cv::SphericalWarperGpu>(),
+                                  stitcher);
+      });
 #endif
-    CONFIG_TABLE.push_back(item);
-  }
-  {
-    ConfigItem item;
-    item.title = "bundleAdjuster";
-    item.type = ConfigItem::STRING;
-    item.description =
-        "联合绑定优化器，在相机参数初步推断完成后，"
-        "被选中的所有全景图图像会全部给他做一次参数优化。 ";
-    item.options.push_back("NoBundleAdjuster");
-    ALL_CONFIGS.insert(std::make_pair(
-        "bundleAdjuster.NoBundleAdjuster",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::BundleAdjusterBase>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new BundleAdjusterListener(
-                  cv::makePtr<cv::detail::NoBundleAdjuster>(), stitcher);
-            }))));
-    item.options.push_back("BundleAdjusterReproj");
-    ALL_CONFIGS.insert(std::make_pair(
-        "bundleAdjuster.BundleAdjusterReproj",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::BundleAdjusterBase>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new BundleAdjusterListener(
-                  cv::makePtr<cv::detail::BundleAdjusterReproj>(), stitcher);
-            }))));
-    item.options.push_back("BundleAdjusterRay");
-    ALL_CONFIGS.insert(std::make_pair(
-        "bundleAdjuster.BundleAdjusterRay",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::BundleAdjusterBase>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new BundleAdjusterListener(
-                  cv::makePtr<cv::detail::BundleAdjusterRay>(), stitcher);
-            }))));
-    item.options.push_back("BundleAdjusterAffine");
-    ALL_CONFIGS.insert(std::make_pair(
-        "bundleAdjuster.BundleAdjusterAffine",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::BundleAdjusterBase>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new BundleAdjusterListener(
-                  cv::makePtr<cv::detail::BundleAdjusterAffine>(), stitcher);
-            }))));
-    item.options.push_back("BundleAdjusterAffinePartial");
-    ALL_CONFIGS.insert(std::make_pair(
-        "bundleAdjuster.BundleAdjusterAffinePartial",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::BundleAdjusterBase>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new BundleAdjusterListener(
-                  cv::makePtr<cv::detail::BundleAdjusterAffinePartial>(),
-                  stitcher);
-            }))));
-    CONFIG_TABLE.push_back(item);
-  }
-  {
-    ConfigItem item;
-    item.title = "blender";
-    item.type = ConfigItem::STRING;
-    item.description =
-        "图像融合器，用于将拼接后的图像进行融合，"
-        "主流融合算法有多频段融合，羽化融合等。";
-    item.options.push_back("NoBlender");
-    ALL_CONFIGS.insert(std::make_pair(
-        "blender.NoBlender",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::Blender>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new BlenderListener(
-                  cv::detail::Blender::createDefault(cv::detail::Blender::NO),
-                  stitcher);
-            }))));
-    item.options.push_back("MultiBandBlender");
-    ALL_CONFIGS.insert(std::make_pair(
-        "blender.MultiBandBlender",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::Blender>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new BlenderListener(cv::detail::Blender::createDefault(
-                                             cv::detail::Blender::MULTI_BAND),
-                                         stitcher);
-            }))));
-    item.options.push_back("FeatherBlender");
-    ALL_CONFIGS.insert(std::make_pair(
-        "blender.FeatherBlender",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::Blender>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new BlenderListener(cv::detail::Blender::createDefault(
-                                             cv::detail::Blender::FEATHER),
-                                         stitcher);
-            }))));
-    CONFIG_TABLE.push_back(item);
-  }
-  {
-    ConfigItem item;
-    item.title = "seamFinder";
-    item.type = ConfigItem::STRING;
-    item.description =
-        "拼接缝合线查找器，用于查找拼接图像之间的缝合线，"
-        "主流查找算法有暴力查找，动态规划查找，基于图像分割的查找等。 ";
-    item.options.push_back("NoSeamFinder");
-    ALL_CONFIGS.insert(std::make_pair(
-        "seamFinder.NoSeamFinder",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::SeamFinder>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new SeamFinderListener(
-                  cv::makePtr<cv::detail::NoSeamFinder>(), stitcher);
-            }))));
-    item.options.push_back("DpSeamFinder");
-    ALL_CONFIGS.insert(std::make_pair(
-        "seamFinder.DpSeamFinder",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::SeamFinder>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new SeamFinderListener(
-                  cv::makePtr<cv::detail::DpSeamFinder>(), stitcher);
-            }))));
-    item.options.push_back("VoronoiSeamFinder");
-    ALL_CONFIGS.insert(std::make_pair(
-        "seamFinder.VoronoiSeamFinder",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::SeamFinder>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new SeamFinderListener(
-                  cv::makePtr<cv::detail::VoronoiSeamFinder>(), stitcher);
-            }))));
-    item.options.push_back("GraphCutSeamFinder");
-    ALL_CONFIGS.insert(std::make_pair(
-        "seamFinder.GraphCutSeamFinder",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::SeamFinder>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new SeamFinderListener(
-                  cv::makePtr<cv::detail::GraphCutSeamFinder>(
-                      cv::detail::GraphCutSeamFinderBase::COST_COLOR),
-                  stitcher);
-            }))));
-    CONFIG_TABLE.push_back(item);
-  }
-  {
-    ConfigItem item;
-    item.title = "exposureCompensator";
-    item.type = ConfigItem::STRING;
-    item.description =
-        "曝光补偿器，用于对拼接图像进行曝光补偿，主流曝光补偿算法有无补偿，增"
-        "益补偿，通道补偿，块增益补偿，块通道补偿等。";
-    item.options.push_back("NoExposureCompensator");
-    ALL_CONFIGS.insert(std::make_pair(
-        "exposureCompensator.NoExposureCompensator",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::ExposureCompensator>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new ExporterListener(
-                  cv::makePtr<cv::detail::NoExposureCompensator>(), stitcher);
-            }))));
-    item.options.push_back("GainCompensator");
-    ALL_CONFIGS.insert(std::make_pair(
-        "exposureCompensator.GainCompensator",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::ExposureCompensator>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new ExporterListener(
-                  cv::makePtr<cv::detail::GainCompensator>(), stitcher);
-            }))));
-    item.options.push_back("ChannelsCompensator");
-    ALL_CONFIGS.insert(std::make_pair(
-        "exposureCompensator.ChannelsCompensator",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::ExposureCompensator>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new ExporterListener(
-                  cv::makePtr<cv::detail::ChannelsCompensator>(), stitcher);
-            }))));
-    item.options.push_back("BlocksGainCompensator");
-    ALL_CONFIGS.insert(std::make_pair(
-        "exposureCompensator.BlocksGainCompensator",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::ExposureCompensator>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new ExporterListener(
-                  cv::makePtr<cv::detail::BlocksGainCompensator>(), stitcher);
-            }))));
-    item.options.push_back("BlocksChannelsCompensator");
-    ALL_CONFIGS.insert(std::make_pair(
-        "exposureCompensator.BlocksChannelsCompensator",
-        CreateCallAble(
-            std::function<cv::Ptr<cv::detail::ExposureCompensator>(
-                ImageStitcher * stitcher)>([](ImageStitcher *stitcher) {
-              return new ExporterListener(
-                  cv::makePtr<cv::detail::BlocksChannelsCompensator>(),
-                  stitcher);
-            }))));
-    CONFIG_TABLE.push_back(item);
-  }
-  {
-    ConfigItem item;
-    item.title = "interpolationFlags";
-    item.type = ConfigItem::STRING;
-    item.description =
-        "插值方式，用于图像缩放和旋转时的像素插值，"
-        "主流插值方式有最近邻插值，双线性插值，"
-        "双三次插值，面积插值，Lanczos插值等。";
-    item.options.push_back("INTER_NEAREST");
-    ALL_CONFIGS.insert(
-        std::make_pair("interpolationFlags.INTER_NEAREST",
-                       CreateCallAble(std::function<cv::InterpolationFlags()>(
-                           []() { return cv::INTER_NEAREST; }))));
-    item.options.push_back("INTER_LINEAR");
-    ALL_CONFIGS.insert(
-        std::make_pair("interpolationFlags.INTER_LINEAR",
-                       CreateCallAble(std::function<cv::InterpolationFlags()>(
-                           []() { return cv::INTER_LINEAR; }))));
-    item.options.push_back("INTER_CUBIC");
-    ALL_CONFIGS.insert(
-        std::make_pair("interpolationFlags.INTER_CUBIC",
-                       CreateCallAble(std::function<cv::InterpolationFlags()>(
-                           []() { return cv::INTER_CUBIC; }))));
-    item.options.push_back("INTER_AREA");
-    ALL_CONFIGS.insert(
-        std::make_pair("interpolationFlags.INTER_AREA",
-                       CreateCallAble(std::function<cv::InterpolationFlags()>(
-                           []() { return cv::INTER_AREA; }))));
-    item.options.push_back("INTER_LANCZOS4");
-    ALL_CONFIGS.insert(
-        std::make_pair("interpolationFlags.INTER_LANCZOS4",
-                       CreateCallAble(std::function<cv::InterpolationFlags()>(
-                           []() { return cv::INTER_LANCZOS4; }))));
-    CONFIG_TABLE.push_back(item);
-  }
-  {
-    ConfigItem item;
-    item.title = "CompositingResol";
-    item.type = ConfigItem::FLOAT;
-    item.description =
-        "图像将经过该系数缩放后进行融合操作，较小的缩放系数可以让处理更快但丢"
-        "失的细节越多越容易出现匹配错误或不匹配的情况。较大的系数在图像过大时"
-        "需要更多的资源，计算公式为min(1.0 qrt(compositing_resol * 1e6 / "
-        "image_area)),如果小于零则不做缩放处理。";
-    item.range[0] = -1;
-    item.range[1] = 1e308;
-    CONFIG_TABLE.push_back(item);
-  }
-  {
-    ConfigItem item;
-    item.title = "RegistrationResol";
-    item.type = ConfigItem::FLOAT;
-    item.description =
-        "图像将经过该系数缩放后进行预预处理操作，较小的缩放系数可以让处理更快但"
-        "丢失的细节越多越容易出现匹配错误或不匹配的情况。较大的系数在图像过大时"
-        "需要更多的资源，计算公式为min(1.0 qrt(register_resol * 1e6 / "
-        "image_area))。";
-    item.range[0] = 0;
-    item.range[1] = 1e308;
-    CONFIG_TABLE.push_back(item);
-  }
-  {
-    ConfigItem item;
-    item.title = "SeamEstimationResol";
-    item.type = ConfigItem::FLOAT;
-    item.description =
-        "图像将经过该系数缩放后进行拼接缝求取，较小的缩放系数可以让处理更快但"
-        "丢失的细节越多越容易出现匹配错误或不匹配的情况。较大的系数在图像过大时"
-        "需要更多的资源，计算公式为min(1.0 qrt(seam_estimation_resol * 1e6 / "
-        "image_area))。建议值为0.1";
-    item.range[0] = 0;
-    item.range[1] = 1e308;
-    CONFIG_TABLE.push_back(item);
-  }
-  {
-    ConfigItem item;
-    item.title = "PanoConfidenceThresh";
-    item.type = ConfigItem::FLOAT;
-    item.description = "图像参数估计和标定优化的阈值，建议值为1";
-    item.range[0] = 0;
-    item.range[1] = 1e308;
-    CONFIG_TABLE.push_back(item);
-  }
-  {
-    ConfigItem item;
-    item.title = "DivideImage";
-    item.type = ConfigItem::STRING;
-    item.description = "是否对图像进行带重叠的切割以提高拼接成功的概率";
-    item.options.push_back("NO");
-    ALL_CONFIGS.insert(std::make_pair(
-        "DivideImage.NO",
-        CreateCallAble(std::function<int()>([]() { return 0; }))));
-    item.options.push_back("ROW");
-    ALL_CONFIGS.insert(std::make_pair(
-        "DivideImage.ROW",
-        CreateCallAble(std::function<int()>([]() { return 1; }))));
-    item.options.push_back("COL");
-    ALL_CONFIGS.insert(std::make_pair(
-        "DivideImage.COL",
-        CreateCallAble(std::function<int()>([]() { return 2; }))));
-    CONFIG_TABLE.push_back(item);
-  }
+
+  CreateConfigItem("BundleAdjuster", ConfigItem::STRING,
+                   "联合绑定优化器，在相机参数初步推断完成后，"
+                   "被选中的所有全景图图像会全部给他做一次参数优化。");
+  RegisterOptionIntoConfig(
+      "BundleAdjuster", "NoBundleAdjuster",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::BundleAdjusterBase> {
+        return new BundleAdjusterListener(
+            cv::makePtr<cv::detail::NoBundleAdjuster>(), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "BundleAdjuster", "BundleAdjusterReproj",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::BundleAdjusterBase> {
+        return new BundleAdjusterListener(
+            cv::makePtr<cv::detail::BundleAdjusterReproj>(), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "BundleAdjuster", "BundleAdjusterRay",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::BundleAdjusterBase> {
+        return new BundleAdjusterListener(
+            cv::makePtr<cv::detail::BundleAdjusterRay>(), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "BundleAdjuster", "BundleAdjusterAffine",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::BundleAdjusterBase> {
+        return new BundleAdjusterListener(
+            cv::makePtr<cv::detail::BundleAdjusterAffine>(), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "BundleAdjuster", "BundleAdjusterAffinePartial",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::BundleAdjusterBase> {
+        return new BundleAdjusterListener(
+            cv::makePtr<cv::detail::BundleAdjusterAffinePartial>(), stitcher);
+      });
+
+  CreateConfigItem("Blender", ConfigItem::STRING,
+                   "图像融合器，用于将拼接后的图像进行融合，"
+                   "主流融合算法有多频段融合，羽化融合等。");
+  RegisterOptionIntoConfig(
+      "Blender", "NoBlender",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::Blender> {
+        return new BlenderListener(
+            cv::detail::Blender::createDefault(cv::detail::Blender::NO),
+            stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "Blender", "MultiBandBlender",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::Blender> {
+        return new BlenderListener(
+            cv::detail::Blender::createDefault(cv::detail::Blender::MULTI_BAND),
+            stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "Blender", "FeatherBlender",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::Blender> {
+        return new BlenderListener(
+            cv::detail::Blender::createDefault(cv::detail::Blender::FEATHER),
+            stitcher);
+      });
+
+  CreateConfigItem(
+      "SeamFinder", ConfigItem::STRING,
+      "拼接缝合线查找器，用于查找拼接图像之间的缝合线，"
+      "主流查找算法有暴力查找，动态规划查找，基于图像分割的查找等。");
+  RegisterOptionIntoConfig(
+      "SeamFinder", "NoSeamFinder",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::SeamFinder> {
+        return new SeamFinderListener(cv::makePtr<cv::detail::NoSeamFinder>(),
+                                      stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "SeamFinder", "DpSeamFinder",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::SeamFinder> {
+        return new SeamFinderListener(cv::makePtr<cv::detail::DpSeamFinder>(),
+                                      stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "SeamFinder", "VoronoiSeamFinder",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::SeamFinder> {
+        return new SeamFinderListener(
+            cv::makePtr<cv::detail::VoronoiSeamFinder>(), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "SeamFinder", "GraphCutSeamFinder",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::SeamFinder> {
+        return new SeamFinderListener(
+            cv::makePtr<cv::detail::GraphCutSeamFinder>(), stitcher);
+      });
+
+  CreateConfigItem(
+      "ExposureCompensator", ConfigItem::STRING,
+      "曝光补偿器，用于对拼接图像进行曝光补偿，主流曝光补偿算法有无补偿，增"
+      "益补偿，通道补偿，块增益补偿，块通道补偿等。");
+  RegisterOptionIntoConfig(
+      "ExposureCompensator", "NoExposureCompensator",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::ExposureCompensator> {
+        return new ExporterListener(
+            cv::makePtr<cv::detail::NoExposureCompensator>(), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "ExposureCompensator", "GainCompensator",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::ExposureCompensator> {
+        return new ExporterListener(cv::makePtr<cv::detail::GainCompensator>(),
+                                    stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "ExposureCompensator", "ChannelsCompensator",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::ExposureCompensator> {
+        return new ExporterListener(
+            cv::makePtr<cv::detail::ChannelsCompensator>(), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "ExposureCompensator", "BlocksGainCompensator",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::ExposureCompensator> {
+        return new ExporterListener(
+            cv::makePtr<cv::detail::BlocksGainCompensator>(), stitcher);
+      });
+  RegisterOptionIntoConfig(
+      "ExposureCompensator", "BlocksChannelsCompensator",
+      +[](ImageStitcher *stitcher) -> cv::Ptr<cv::detail::ExposureCompensator> {
+        return new ExporterListener(
+            cv::makePtr<cv::detail::BlocksChannelsCompensator>(), stitcher);
+      });
+
+  CreateConfigItem("InterpolationFlags", ConfigItem::STRING,
+                   "插值方式，用于图像缩放和旋转时的像素插值，"
+                   "主流插值方式有最近邻插值，双线性插值，"
+                   "双三次插值，面积插值，Lanczos插值等。");
+  RegisterOptionIntoConfig(
+      "InterpolationFlags", "INTER_NEAREST",
+      +[]() -> cv::InterpolationFlags { return cv::INTER_NEAREST; });
+  RegisterOptionIntoConfig(
+      "InterpolationFlags", "INTER_LINEAR",
+      +[]() -> cv::InterpolationFlags { return cv::INTER_LINEAR; });
+  RegisterOptionIntoConfig(
+      "InterpolationFlags", "INTER_CUBIC",
+      +[]() -> cv::InterpolationFlags { return cv::INTER_CUBIC; });
+  RegisterOptionIntoConfig(
+      "InterpolationFlags", "INTER_AREA",
+      +[]() -> cv::InterpolationFlags { return cv::INTER_AREA; });
+  RegisterOptionIntoConfig(
+      "InterpolationFlags", "INTER_LANCZOS4",
+      +[]() -> cv::InterpolationFlags { return cv::INTER_LANCZOS4; });
+
+  CreateConfigItem(
+      "CompositingResol", ConfigItem::FLOAT,
+      "图像将经过该系数缩放后进行融合操作，较小的缩放系数可以让处理更快但丢"
+      "失的细节越多越容易出现匹配错误或不匹配的情况。较大的系数在图像过大时"
+      "需要更多的资源，计算公式为min(1.0 qrt(compositing_resol * 1e6 / "
+      "image_area)),如果小于零则不做缩放处理。");
+  RegisterOptionIntoConfig("CompositingResol", -1.0, 1e10);
+
+  CreateConfigItem(
+      "RegistrationResol", ConfigItem::FLOAT,
+      "图像将经过该系数缩放后进行预预处理操作，较小的缩放系数可以让处理更快但"
+      "丢失的细节越多越容易出现匹配错误或不匹配的情况。较大的系数在图像过大时"
+      "需要更多的资源，计算公式为min(1.0 qrt(register_resol * 1e6 / "
+      "image_area))。");
+  RegisterOptionIntoConfig("RegistrationResol", 0.0, 1e10);
+
+  CreateConfigItem(
+      "SeamEstimationResol", ConfigItem::FLOAT,
+      "图像将经过该系数缩放后进行拼接缝求取，较小的缩放系数可以让处理更快但"
+      "丢失的细节越多越容易出现匹配错误或不匹配的情况。较大的系数在图像过大时"
+      "需要更多的资源，计算公式为min(1.0 qrt(seam_estimation_resol * 1e6 / "
+      "image_area))。建议值为0.1");
+  RegisterOptionIntoConfig("SeamEstimationResol", 0.0, 1e10);
+
+  CreateConfigItem("PanoConfidenceThresh", ConfigItem::FLOAT,
+                   "图像参数估计和标定优化的阈值，建议值为1");
+  RegisterOptionIntoConfig("PanoConfidenceThresh", 0.0, 1e10);
+
+  CreateConfigItem("DivideImage", ConfigItem::STRING,
+                   "是否对图像进行带重叠的切割以提高拼接成功的概率");
+  RegisterOptionIntoConfig(
+      "DivideImage", "NO", +[]() -> int { return 0; });
+  RegisterOptionIntoConfig(
+      "DivideImage", "ROW", +[]() -> int { return 1; });
+  RegisterOptionIntoConfig(
+      "DivideImage", "COL", +[]() -> int { return 2; });
 }
 
 }  // namespace
 
 auto ImageStitcher::ParamTable() -> std::vector<ConfigItem> {
   init();
-  return CONFIG_TABLE;
+  std::vector<ConfigItem> table;
+  for (const auto &title : CONFIG_ITEMS) {
+    table.push_back(CONFIG_TABLE[title]);
+  }
+  return table;
 }
 auto ImageStitcher::SetParams(const Parameters &params) -> void {
   if (!params.Empty()) {
@@ -977,122 +808,111 @@ auto ImageStitcher::SetParams(const Parameters &params) -> void {
   // LOG(INFO) << _params.ToString();
   _cv_stitcher.release();
   // 拼接模式
-  auto stitcher_mode = "mode." + _params.GetParam("mode", std::string());
+  auto stitcher_mode = "Mode." + _params.GetParam("Mode", std::string());
   _mode = Mode::ALL;
   if (ALL_CONFIGS.find(stitcher_mode) != ALL_CONFIGS.end()) {
     LOG(INFO) << stitcher_mode;
-    if (stitcher_mode == "mode.INCREMENTAL") {
+    if (stitcher_mode == "Mode.INCREMENTAL") {
       _mode = Mode::INCREMENTAL;
     }
-    _cv_stitcher = dynamic_cast<CallAble<cv::Ptr<cv::Stitcher>> *>(
-                       ALL_CONFIGS.at(stitcher_mode).get())
-                       ->call();
+    _cv_stitcher = ALL_CONFIGS.at(stitcher_mode)->call<cv::Ptr<cv::Stitcher>>();
     _current_stitcher_mode = stitcher_mode;
   } else {
     _cv_stitcher = cv::Stitcher::create();
-    _current_stitcher_mode = "mode.PANORAMA";
+    _current_stitcher_mode = "Mode.PANORAMA";
   }
 
   // 相机参数推断模型
   auto estimator_name =
-      "estimator." + _params.GetParam("estimator", std::string());
+      "Estimator." + _params.GetParam("Estimator", std::string());
   if (ALL_CONFIGS.find(estimator_name) != ALL_CONFIGS.end()) {
     LOG(INFO) << estimator_name;
     _cv_stitcher->setEstimator(
-        dynamic_cast<CallAble<cv::Ptr<cv::detail::Estimator>, ImageStitcher *>
-                         *>(ALL_CONFIGS.at(estimator_name).get())
-            ->call(this));
+        ALL_CONFIGS.at(estimator_name)
+            ->call<cv::Ptr<cv::detail::Estimator>, ImageStitcher *>(this));
   }
 
   // 图像特征点提取器
   auto features_finder_name =
-      "featuresFinder." + _params.GetParam("featuresFinder", std::string());
+      "FeaturesFinder." + _params.GetParam("FeaturesFinder", std::string());
   if (ALL_CONFIGS.find(features_finder_name) != ALL_CONFIGS.end()) {
     LOG(INFO) << features_finder_name;
     _cv_stitcher->setFeaturesFinder(
-        dynamic_cast<CallAble<cv::Ptr<cv::FeatureDetector>, ImageStitcher *> *>(
-            ALL_CONFIGS.at(features_finder_name).get())
-            ->call(this));
+        ALL_CONFIGS.at(features_finder_name)
+            ->call<cv::Ptr<cv::FeatureDetector>, ImageStitcher *>(this));
   }
 
   // 特征匹配器
   auto features_matcher_name =
-      "featuresMatcher." + _params.GetParam("featuresMatcher", std::string());
+      "FeaturesMatcher." + _params.GetParam("FeaturesMatcher", std::string());
   if (ALL_CONFIGS.find(features_matcher_name) != ALL_CONFIGS.end()) {
     LOG(INFO) << features_matcher_name;
     _cv_stitcher->setFeaturesMatcher(
-        dynamic_cast<
-            CallAble<cv::Ptr<cv::detail::FeaturesMatcher>, ImageStitcher *> *>(
-            ALL_CONFIGS.at(features_matcher_name).get())
-            ->call(this));
+        ALL_CONFIGS.at(features_matcher_name)
+            ->call<cv::Ptr<cv::detail::FeaturesMatcher>, ImageStitcher *>(
+                this));
   }
 
   // 设置投影类型
-  auto warper_name = "warper." + _params.GetParam("warper", std::string());
+  auto warper_name = "Warper." + _params.GetParam("Warper", std::string());
   if (ALL_CONFIGS.find(warper_name) != ALL_CONFIGS.end()) {
     LOG(INFO) << warper_name;
     _cv_stitcher->setWarper(
-        dynamic_cast<CallAble<cv::Ptr<cv::WarperCreator>, ImageStitcher *> *>(
-            ALL_CONFIGS.at(warper_name).get())
-            ->call(this));
+        ALL_CONFIGS.at(warper_name)
+            ->call<cv::Ptr<cv::WarperCreator>, ImageStitcher *>(this));
   }
 
   // 接缝查找器
   auto seam_finder_name =
-      "seamFinder." + _params.GetParam("seamFinder", std::string());
+      "SeamFinder." + _params.GetParam("SeamFinder", std::string());
   if (ALL_CONFIGS.find(seam_finder_name) != ALL_CONFIGS.end()) {
     LOG(INFO) << seam_finder_name;
     _cv_stitcher->setSeamFinder(
-        dynamic_cast<CallAble<cv::Ptr<cv::detail::SeamFinder>, ImageStitcher *>
-                         *>(ALL_CONFIGS.at(seam_finder_name).get())
-            ->call(this));
+        ALL_CONFIGS.at(seam_finder_name)
+            ->call<cv::Ptr<cv::detail::SeamFinder>, ImageStitcher *>(this));
   }
 
   // 光照补偿
   auto exposure_compensator_name =
-      "exposureCompensator." +
-      _params.GetParam("exposureCompensator", std::string());
+      "ExposureCompensator." +
+      _params.GetParam("ExposureCompensator", std::string());
   if (ALL_CONFIGS.find(exposure_compensator_name) != ALL_CONFIGS.end()) {
     LOG(INFO) << exposure_compensator_name;
     _cv_stitcher->setExposureCompensator(
-        dynamic_cast<CallAble<cv::Ptr<cv::detail::ExposureCompensator>,
-                              ImageStitcher *> *>(
-            ALL_CONFIGS.at(exposure_compensator_name).get())
-            ->call(this));
+        ALL_CONFIGS.at(exposure_compensator_name)
+            ->call<cv::Ptr<cv::detail::ExposureCompensator>, ImageStitcher *>(
+                this));
   }
 
   // 联合绑定优化
   auto bundle_adjuster_name =
-      "bundleAdjuster." + _params.GetParam("bundleAdjuster", std::string());
+      "BundleAdjuster." + _params.GetParam("BundleAdjuster", std::string());
   if (ALL_CONFIGS.find(bundle_adjuster_name) != ALL_CONFIGS.end()) {
     LOG(INFO) << bundle_adjuster_name;
     _cv_stitcher->setBundleAdjuster(
-        dynamic_cast<CallAble<cv::Ptr<cv::detail::BundleAdjusterBase>,
-                              ImageStitcher *> *>(
-            ALL_CONFIGS.at(bundle_adjuster_name).get())
-            ->call(this));
+        ALL_CONFIGS.at(bundle_adjuster_name)
+            ->call<cv::Ptr<cv::detail::BundleAdjusterBase>, ImageStitcher *>(
+                this));
   }
 
   // 图像融合模式
-  auto blender_name = "blender." + _params.GetParam("blender", std::string());
+  auto blender_name = "Blender." + _params.GetParam("Blender", std::string());
   if (ALL_CONFIGS.find(blender_name) != ALL_CONFIGS.end()) {
     LOG(INFO) << blender_name;
     _cv_stitcher->setBlender(
-        dynamic_cast<CallAble<cv::Ptr<cv::detail::Blender>, ImageStitcher *> *>(
-            ALL_CONFIGS.at(blender_name).get())
-            ->call(this));
+        ALL_CONFIGS.at(blender_name)
+            ->call<cv::Ptr<cv::detail::Blender>, ImageStitcher *>(this));
   }
 
   // 图像插值方式
   auto interpolation_flags_name =
-      "interpolationFlags." +
-      _params.GetParam("interpolationFlags", std::string());
+      "InterpolationFlags." +
+      _params.GetParam("InterpolationFlags", std::string());
   if (ALL_CONFIGS.find(interpolation_flags_name) != ALL_CONFIGS.end()) {
     LOG(INFO) << interpolation_flags_name;
     _cv_stitcher->setInterpolationFlags(
-        dynamic_cast<CallAble<cv::InterpolationFlags> *>(
-            ALL_CONFIGS.at(interpolation_flags_name).get())
-            ->call());
+        ALL_CONFIGS.at(interpolation_flags_name)
+            ->call<cv::InterpolationFlags>());
   }
 
   auto compositing_resol = _params.GetParam("CompositingResol", (float)-1.0);
@@ -1115,9 +935,7 @@ auto ImageStitcher::SetParams(const Parameters &params) -> void {
       "DivideImage." + _params.GetParam("DivideImage", std::string("NO"));
   if (ALL_CONFIGS.find(divide_image_name) != ALL_CONFIGS.end()) {
     LOG(INFO) << "DivideImage : " << divide_image_name;
-    _divide_images =
-        dynamic_cast<CallAble<int> *>(ALL_CONFIGS.at(divide_image_name).get())
-            ->call();
+    _divide_images = ALL_CONFIGS.at(divide_image_name)->call<int>();
   }
 
   signal_run_message("配置成功.", 1000);
@@ -1134,16 +952,16 @@ ImageStitcher::ImageStitcher() {
         "\"PanoConfidenceThresh\": {\"value\": 1.0},"
         "\"RegistrationResol\": {\"value\": 0.6},"
         "\"SeamEstimationResol\": {\"value\": 0.1},"
-        "\"blender\": {\"value\": \"MultiBandBlender\"},"
-        "\"bundleAdjuster\": {\"value\": \"BundleAdjusterAffine\"},"
-        "\"estimator\": {\"value\": \"AffineBasedEstimator\"},"
-        "\"exposureCompensator\": {\"value\": \"NoExposureCompensator\"},"
-        "\"featuresFinder\": {\"value\": \"SURF\"},"
-        "\"featuresMatcher\": {\"value\": \"AffineBestOf2NearestMatcher\"},"
-        "\"interpolationFlags\": {\"value\": \"INTER_LINEAR\"},"
-        "\"mode\": {\"value\": \"SCANS\"},"
-        "\"seamFinder\": {\"value\": \"GraphCutSeamFinder\"},"
-        "\"warper\": {\"value\": \"AffineWarper\"}"
+        "\"Blender\": {\"value\": \"MultiBandBlender\"},"
+        "\"BundleAdjuster\": {\"value\": \"BundleAdjusterAffine\"},"
+        "\"Estimator\": {\"value\": \"AffineBasedEstimator\"},"
+        "\"ExposureCompensator\": {\"value\": \"NoExposureCompensator\"},"
+        "\"FeaturesFinder\": {\"value\": \"SURF\"},"
+        "\"FeaturesMatcher\": {\"value\": \"AffineBestOf2NearestMatcher\"},"
+        "\"InterpolationFlags\": {\"value\": \"INTER_LINEAR\"},"
+        "\"Mode\": {\"value\": \"SCANS\"},"
+        "\"SeamFinder\": {\"value\": \"GraphCutSeamFinder\"},"
+        "\"Warper\": {\"value\": \"AffineWarper\"}"
         "}");
   }
 }

@@ -12,11 +12,16 @@ namespace ImageStitch {
 
 struct ConfigItem {
   enum Type { STRING = 0, FLOAT = 1, INT = 2 };
+  ConfigItem(
+      const std::string &title = "", const Type &type = STRING,
+      const std::string &desc = "",
+      const std::vector<std::string> &options = std::vector<std::string>())
+      : title(title), type(type), description(desc), options(options) {}
   std::string title;
   Type type;
+  std::string description;
   std::vector<std::string> options;
   double range[2];
-  std::string description;
 };
 
 struct ImageExif {

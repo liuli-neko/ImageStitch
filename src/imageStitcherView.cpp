@@ -261,14 +261,18 @@ void ImageStitcherView::_Solts::Result(std::vector<ImagePtr> imgs) {
 }
 
 void ImageStitcherView::Stitch(bool checked) {
-  StartStitcher();
   auto Items = m_model->getItems(0, m_model->rowCount());
-  auto stitch_func = [this, Items]() {
+  std::vector<std::string> image_files;
+  for (const auto &[file_name, pixmap] : Items) {
+    image_files.push_back(file_name.toStdString());
+  }
+  if (image_files.size() <= 0) {
+    _solts.ShowMessage("请放入图像再进行拼接操作", -1);
+    return;
+  }
+  StartStitcher();
+  auto stitch_func = [this, image_files]() {
     image_stitcher.RemoveAllImages();
-    std::vector<std::string> image_files;
-    for (const auto &[file_name, pixmap] : Items) {
-      image_files.push_back(file_name.toStdString());
-    }
     image_stitcher.SetImages(image_files);
     return image_stitcher.Stitch();
   };
