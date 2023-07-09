@@ -1,6 +1,5 @@
 #include "imageStitcher.hpp"
 
-#include <exif.h>
 #include <glog/logging.h>
 #include <math.h>
 #include <omp.h>
@@ -974,7 +973,6 @@ auto ImageStitcher::Clean() -> bool {
   _images_features.clear();
   _features_matches.clear();
   _final_camera_params.clear();
-  _image_exifs.clear();
   _pairwise_matches.clear();
   _camera_params.clear();
   _regist_scales.clear();
@@ -992,7 +990,6 @@ auto ImageStitcher::SetImages(std::vector<ImagePtr> images) -> bool {
 
 auto ImageStitcher::SetImages(std::vector<std::string> image_files) -> bool {
   _images.resize(image_files.size());
-  _image_exifs.resize(image_files.size());
 #pragma omp parallel for
   for (int i = 0; i < image_files.size(); ++i) {
     std::ifstream file;
@@ -1000,27 +997,6 @@ auto ImageStitcher::SetImages(std::vector<std::string> image_files) -> bool {
     std::vector<uchar> buffer((std::istreambuf_iterator<char>(file)),
                               std::istreambuf_iterator<char>());
     _images[i] = new Image(cv::imdecode(buffer, cv::IMREAD_COLOR));
-    if (kUseGps) {
-      easyexif::EXIFInfo result;
-      result.parseFrom(buffer.data(), buffer.size());
-      ImageExif image_exif;
-      image_exif.camera_model = result.Model;
-      image_exif.exposure_bias = result.ExposureBiasValue;
-      image_exif.exposure_time = result.ExposureTime;
-      image_exif.f_stop = result.FNumber;
-      image_exif.flash_used = result.Flash;
-      image_exif.focal_length = result.FocalLength;
-      image_exif.focal_length_35mm = result.FocalLengthIn35mm;
-      image_exif.gps_altitude = result.GeoLocation.Altitude;
-      image_exif.gps_latitude = result.GeoLocation.Latitude;
-      image_exif.gps_longitude = result.GeoLocation.Longitude;
-      image_exif.image_height = result.ImageHeight;
-      image_exif.image_width = result.ImageWidth;
-      image_exif.image_orientation = result.Orientation;
-      image_exif.iso_speed = result.ISOSpeedRatings;
-      image_exif.original_date_time = result.DateTimeOriginal;
-      _image_exifs[i] = image_exif;
-    }
   }
   return true;
 }

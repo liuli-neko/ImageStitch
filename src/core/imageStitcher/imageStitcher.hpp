@@ -24,24 +24,6 @@ struct ConfigItem {
   double range[2];
 };
 
-struct ImageExif {
-  uint focal_length_35mm = 0;
-  int flash_used = 0;
-  int iso_speed = 0;
-  int image_width = 0;
-  int image_height = 0;
-  int image_orientation = 0;
-  int exposure_time = 0;
-  float f_stop = 0;
-  float exposure_bias = 0;
-  float focal_length = 0;
-  float gps_latitude = 0;
-  float gps_longitude = 0;
-  float gps_altitude = 0;
-  std::string camera_model = "";
-  std::string original_date_time = "";
-};
-
 class ImageStitcher {
  public:
   enum Mode { ALL = 0, INCREMENTAL = 1, MERGE = 2 };
@@ -153,7 +135,6 @@ class ImageStitcher {
   std::vector<ImageFeatures> _images_features;
   std::map<std::pair<int, int>, MatchesInfo> _features_matches;
   std::vector<CameraParams> _final_camera_params;
-  std::vector<ImageExif> _image_exifs;
   std::vector<std::vector<MatchesInfo>> _pairwise_matches;
   std::vector<std::vector<CameraParams>> _camera_params;
   std::vector<double> _regist_scales;
@@ -161,6 +142,5 @@ class ImageStitcher {
   std::string _current_stitcher_mode;
   int _divide_images;
   Mode _mode;
-  const bool kUseGps = false;
 };
 }  // namespace ImageStitch
